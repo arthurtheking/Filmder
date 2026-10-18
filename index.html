@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Filmder</title>
+  <meta name="theme-color" content="#0a0a0d">
+
+  <!-- Эти теги нужны, чтобы на iPhone страница, добавленная на домашний экран, открывалась как приложение -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Filmder">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+
+  <link rel="preconnect" href="https://image.tmdb.org">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500&family=Onest:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles/style.css">
+</head>
+<body>
+
+  <div class="app">
+    <header class="top">
+      <div class="logo">filmder</div>
+    </header>
+
+    <!-- Экран свайпа -->
+    <section class="view" id="view-swipe">
+      <div class="chips" id="chips" role="group" aria-label="Жанры"></div>
+      <div class="stage" id="stage"></div>
+      <div class="actions">
+        <button class="round small undo" id="btn-undo" aria-label="Вернуть предыдущий фильм">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>
+        </button>
+        <button class="round nope" id="btn-nope" aria-label="Пропустить">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+        <button class="round like" id="btn-like" aria-label="Взять на вечер">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.6 4.5 6.4 4.5c2.2 0 3.6 1.2 4.6 2.7h2c1-1.5 2.4-2.7 4.6-2.7 3.8 0 5.5 3.9 4 7.3C19.5 16.4 12 21 12 21z"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Экран «Мой вечер» -->
+    <section class="view" id="view-list" hidden>
+      <div class="list-wrap" id="list"></div>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <span class="tab-ind" id="tab-ind"></span>
+      <button class="tab" role="tab" id="tab-swipe" aria-selected="true">Свайп</button>
+      <button class="tab" role="tab" id="tab-list" aria-selected="false">Мой вечер <span class="badge" id="badge" hidden>0</span></button>
+    </nav>
+  </div>
+
+  <!-- Подсказка, если в config.js ещё нет ключа -->
+  <div class="setup" id="setup" hidden>
+    <div class="setup-card">
+      <h2>Нужен ключ TMDB</h2>
+      <ol>
+        <li>Откройте файл <code>config.js</code> в блокноте.</li>
+        <li>Вставьте ключ между кавычками: <code>TMDB_KEY: "ваш_ключ"</code>.</li>
+        <li>Сохраните файл и обновите эту страницу.</li>
+      </ol>
+      <p>Ключ берётся на themoviedb.org в разделе Settings → API.</p>
+    </div>
+  </div>
+
+  <div class="splash" id="splash" aria-hidden="true"><div class="mark" id="mark"><span class="word" id="word">filmder</span><i class="sdot" id="sdot"></i></div></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="backdrop" id="overlay" hidden></div>
+
+  <!-- Порядок важен: сначала настройки, потом TMDB, потом само приложение -->
+  <script src="/scripts/config.js"></script>
+  <script src="/scripts/tmdb.js"></script>
+  <script src="/scripts/app.js"></script>
+</body>
+</html>
