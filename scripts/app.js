@@ -19,6 +19,79 @@ let history = [];
 let busy = false;
 let sheetMovie = null;
 
+// --- ЛОГИКА ТЕМЫ (Полукруг с задержкой 0.1с и плавным появлением элементов) ---
+const THEME_KEY = "filmder-theme";
+const themeCheckbox = document.getElementById("theme-switch-input");
+
+function applyTheme(isLight, animate = false) {
+  if (!animate) {
+    if (isLight) document.documentElement.classList.add("light");
+    else document.documentElement.classList.remove("light");
+    if (themeCheckbox) themeCheckbox.checked = isLight;
+    return;
+  }
+
+  const wave = document.createElement("div");
+  wave.className = "theme-wave";
+  
+  const newBgColor = isLight ? "#EAECEC" : "#0a0a0d";
+  wave.style.background = newBgColor;
+  
+  document.body.appendChild(wave);
+
+  // Анимация разрастания полукруга
+  const anim = wave.animate([
+    { transform: "translate(-50%, 0) scale(0)", opacity: 1 },
+    { transform: "translate(-50%, 0) scale(75)", opacity: 1 }
+  ], {
+    duration: 600,
+    easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+    fill: "forwards"
+  });
+
+  anim.onfinish = () => {
+    // 1. Когда экран полностью заполнен, меняем тему под волной
+    if (isLight) document.documentElement.classList.add("light");
+    else document.documentElement.classList.remove("light");
+
+    // 2. Держим экран заполненным 0.1 секунды (100 мс)
+    setTimeout(() => {
+      // 3. Плавно убираем волну (фейдим)
+      const fadeOut = wave.animate([
+        { opacity: 1 },
+        { opacity: 0 }
+      ], {
+        duration: 500,
+        easing: "ease-out",
+        fill: "forwards"
+      });
+
+      // 4. Одновременно запускаем красивое появление элементов интерфейса
+      const appEl = document.querySelector(".app");
+      if (appEl) {
+        appEl.classList.remove("theme-reveal");
+        void appEl.offsetWidth;
+        appEl.classList.add("theme-reveal");
+      }
+
+      fadeOut.onfinish = () => wave.remove();
+    }, 100);
+  };
+}
+
+// Инициализация темы при загрузке без анимации
+const savedTheme = localStorage.getItem(THEME_KEY);
+applyTheme(savedTheme === "light", false);
+
+// Обработчик переключения тумблера
+if (themeCheckbox) {
+  themeCheckbox.addEventListener("change", () => {
+    const isLight = themeCheckbox.checked;
+    localStorage.setItem(THEME_KEY, isLight ? "light" : "dark");
+    applyTheme(isLight, true);
+  });
+}
+
 function newPaging() { return { page: 0, total: 1, loading: false, error: null }; }
 
 const RM = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -38,7 +111,7 @@ function anim(el, keyframes, options) {
 const bump = el => anim(el, [{ transform: "scale(1)" }, { transform: "scale(1.35)" }, { transform: "scale(1)" }], { duration: 380 });
 
 function posterHtml(path, size, alt) {
-  const src = TMDB.img(path, size);
+  const src = TMDB.img(path, "original");
   return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false" decoding="async">` : ""}</div>`;
 }
 
@@ -131,7 +204,7 @@ const fl = i => `brightness(${1 - i * 0.22})`;
 
 function cardHtml(m) {
   const sub = m.orig && m.orig !== m.title ? `${esc(m.orig)} · ${m.year}` : m.year;
-  return `${posterHtml(m.poster, "w500", m.title)}<div class="shade"></div>
+  return `${posterHtml(m.poster, "original", m.title)}<div class="shade"></div>
     <div class="tap-hint">${ICON_PLAY}Трейлер</div>
     <div class="rate">★ ${m.rating.toFixed(1)}</div>
     <div class="info">
@@ -209,6 +282,7 @@ function bindDrag(el, m) {
   let start = null;
   const likeStamp = el.querySelector(".stamp.like"), nopeStamp = el.querySelector(".stamp.nope");
   const pos = el.querySelector(".poster");
+  
   el.addEventListener("pointerdown", e => {
     if (busy) return;
     if (el._hint) el._hint.cancel();
@@ -217,18 +291,23 @@ function bindDrag(el, m) {
     el.style.transition = "none";
     pos.style.transition = "none";
   });
+
   el.addEventListener("pointermove", e => {
     if (!start) return;
-    start.dx = e.clientX - start.x; start.dy = e.clientY - start.y;
+    start.dx = e.clientX - start.x; 
+    start.dy = e.clientY - start.y;
     if (Math.abs(start.dx) > 6 || Math.abs(start.dy) > 6) start.moved = true;
+    
     el.style.transform = `translate(${start.dx}px, ${start.dy}px) rotate(${start.dx / 18}deg)`;
-    pos.style.transform = `translateX(${start.dx * 0.07}px) scale(1.1)`;
+    pos.style.transform = `translate(${-start.dx * 0.18}px, ${-start.dy * 0.18}px) scale(1.3)`;
+
     const k = Math.min(Math.abs(start.dx) / 100, 1);
     likeStamp.style.opacity = start.dx > 0 ? k : 0;
     nopeStamp.style.opacity = start.dx < 0 ? k : 0;
     likeStamp.style.transform = `rotate(-12deg) scale(${0.7 + 0.3 * k})`;
     nopeStamp.style.transform = `rotate(12deg) scale(${0.7 + 0.3 * k})`;
   });
+
   const end = () => {
     if (!start) return;
     const s = start; start = null;
@@ -243,6 +322,7 @@ function bindDrag(el, m) {
       likeStamp.style.opacity = nopeStamp.style.opacity = 0;
     }
   };
+
   el.addEventListener("pointerup", end);
   el.addEventListener("pointercancel", end);
 }
@@ -375,7 +455,7 @@ function renderList() {
       html += `<div class="row-container" data-id="${m.id}">
         <div class="row-delete-bg">Удалить</div>
         <div class="row" style="--i:${idx++}" data-row="${m.id}">
-          <div class="thumb" data-open="${m.id}">${posterHtml(m.poster, "w185", m.title)}</div>
+          <div class="thumb" data-open="${m.id}">${posterHtml(m.poster, "original", m.title)}</div>
           <div class="row-main">
             <button class="row-title" data-open="${m.id}">${esc(m.title)}</button>
             <div class="row-meta">${[m.year, dur(m.runtime), `★ ${m.rating.toFixed(1)}`].filter(Boolean).join(" · ")}</div>
@@ -467,7 +547,7 @@ function closeOverlay() {
 }
 
 function mediaHtml(m) {
-  const back = TMDB.img(m.backdrop, "w780") || TMDB.img(m.poster, "w500");
+  const back = TMDB.img(m.backdrop, "w780") || TMDB.img(m.poster, "original");
   return `${back ? `<img src="${back}" alt="">` : ""}<div class="spinner"></div>`;
 }
 
@@ -590,7 +670,7 @@ function renderRelated(related) {
     <div class="related-scroll">
       ${related.slice(0, 8).map(r => `
         <div class="related-card" data-related-id="${r.id}">
-          <div class="related-poster">${r.poster ? `<img src="${TMDB.img(r.poster, "w185")}" alt="${esc(r.title)}" loading="lazy">` : ""}</div>
+          <div class="related-poster">${r.poster ? `<img src="${TMDB.img(r.poster, "original")}" alt="${esc(r.title)}" loading="lazy">` : ""}</div>
           <div class="related-name">${esc(r.title)}</div>
         </div>
       `).join("")}
