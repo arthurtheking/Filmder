@@ -19,7 +19,7 @@ let history = [];
 let busy = false;
 let sheetMovie = null;
 
-// --- ЛОГИКА ТЕМЫ (Полукруг с задержкой 0.1с и плавным появлением элементов) ---
+// --- ЛОГИКА ТЕМЫ (Круговой наплыв из тумблера) ---
 const THEME_KEY = "filmder-theme";
 const themeCheckbox = document.getElementById("theme-switch-input");
 
@@ -39,34 +39,34 @@ function applyTheme(isLight, animate = false) {
   
   document.body.appendChild(wave);
 
-  // Анимация разрастания полукруга
+  // Плавное увеличение круга из точки тумблера
   const anim = wave.animate([
-    { transform: "translate(-50%, 0) scale(0)", opacity: 1 },
-    { transform: "translate(-50%, 0) scale(75)", opacity: 1 }
+    { transform: "translate(-50%, -50%) scale(0)", opacity: 1 },
+    { transform: "translate(-50%, -50%) scale(65)", opacity: 1 }
   ], {
-    duration: 600,
+    duration: 550,
     easing: "cubic-bezier(0.25, 1, 0.5, 1)",
     fill: "forwards"
   });
 
   anim.onfinish = () => {
-    // 1. Когда экран полностью заполнен, меняем тему под волной
+    // 1. Когда экран полностью залит, меняем тему
     if (isLight) document.documentElement.classList.add("light");
     else document.documentElement.classList.remove("light");
 
-    // 2. Держим экран заполненным 0.1 секунды (100 мс)
+    // 2. Держим 0.1 секунды заполненным
     setTimeout(() => {
-      // 3. Плавно убираем волну (фейдим)
+      // 3. Фейдим волну
       const fadeOut = wave.animate([
         { opacity: 1 },
         { opacity: 0 }
       ], {
-        duration: 500,
+        duration: 400,
         easing: "ease-out",
         fill: "forwards"
       });
 
-      // 4. Одновременно запускаем красивое появление элементов интерфейса
+      // 4. Проявляем интерфейс
       const appEl = document.querySelector(".app");
       if (appEl) {
         appEl.classList.remove("theme-reveal");
@@ -111,8 +111,9 @@ function anim(el, keyframes, options) {
 const bump = el => anim(el, [{ transform: "scale(1)" }, { transform: "scale(1.35)" }, { transform: "scale(1)" }], { duration: 380 });
 
 function posterHtml(path, size, alt) {
-  const src = TMDB.img(path, "original");
-  return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false" decoding="async">` : ""}</div>`;
+  const imgSize = size === "original" ? "original" : "w500";
+  const src = TMDB.img(path, imgSize);
+  return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false" loading="lazy" decoding="async">` : ""}</div>`;
 }
 
 function burst(btn, color, count) {
@@ -455,7 +456,7 @@ function renderList() {
       html += `<div class="row-container" data-id="${m.id}">
         <div class="row-delete-bg">Удалить</div>
         <div class="row" style="--i:${idx++}" data-row="${m.id}">
-          <div class="thumb" data-open="${m.id}">${posterHtml(m.poster, "original", m.title)}</div>
+          <div class="thumb" data-open="${m.id}">${posterHtml(m.poster, "list", m.title)}</div>
           <div class="row-main">
             <button class="row-title" data-open="${m.id}">${esc(m.title)}</button>
             <div class="row-meta">${[m.year, dur(m.runtime), `★ ${m.rating.toFixed(1)}`].filter(Boolean).join(" · ")}</div>
@@ -670,7 +671,7 @@ function renderRelated(related) {
     <div class="related-scroll">
       ${related.slice(0, 8).map(r => `
         <div class="related-card" data-related-id="${r.id}">
-          <div class="related-poster">${r.poster ? `<img src="${TMDB.img(r.poster, "original")}" alt="${esc(r.title)}" loading="lazy">` : ""}</div>
+          <div class="related-poster">${r.poster ? `<img src="${TMDB.img(r.poster, "w500")}" alt="${esc(r.title)}" loading="lazy">` : ""}</div>
           <div class="related-name">${esc(r.title)}</div>
         </div>
       `).join("")}
