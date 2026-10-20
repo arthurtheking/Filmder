@@ -2,11 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
   <title>Filmder</title>
   <meta name="theme-color" content="#0a0a0d">
 
-  <!-- Эти теги нужны, чтобы на iPhone страница, добавленная на домашний экран, открывалась как приложение -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -17,13 +16,17 @@
 
   <link rel="preconnect" href="https://image.tmdb.org">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500&family=Onest:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/styles/style.css">
+  <link rel="stylesheet" href="styles/style.css">
 </head>
 <body>
 
   <div class="app">
     <header class="top">
       <div class="logo">filmder</div>
+      <button class="filter-btn" id="btn-open-filters" aria-label="Фильтры жанров">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+        <span>Фильтры</span>
+      </button>
     </header>
 
     <!-- Экран свайпа -->
@@ -55,7 +58,34 @@
     </nav>
   </div>
 
-  <!-- Подсказка, если в config.js ещё нет ключа -->
+  <!-- Выпадающее меню фильтров (мультивыбор) -->
+  <div class="backdrop" id="filters-overlay" hidden>
+    <div class="sheet filter-sheet">
+      <div class="sheet-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h2>Выбор жанров</h2>
+        <button class="btn ghost" id="btn-reset-filters" style="padding:4px 8px; font-size:12px;">Сбросить</button>
+      </div>
+      <p style="color:var(--muted); font-size:13px; margin-bottom:14px;">Выберите один или несколько жанров для подборки фильмов:</p>
+      <div class="filter-grid" id="filter-grid"></div>
+      <div style="margin-top:20px; display:flex; gap:8px;">
+        <button class="btn primary" id="btn-apply-filters" style="flex:1;">Применить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Интерактивный туториал -->
+  <div class="tutorial-overlay" id="tutorial" hidden>
+    <div class="tutorial-card" id="tutorial-card">
+      <div class="tutorial-step-indicator" id="tutorial-step-counter">Шаг 1 из 4</div>
+      <h3 id="tutorial-title">Добро пожаловать в Filmder!</h3>
+      <p id="tutorial-text">Давайте быстро покажем, как здесь всё устроено, чтобы вы могли легко находить кино на вечер.</p>
+      <div style="display:flex; gap:8px; margin-top:16px;">
+        <button class="btn ghost" id="tutorial-skip" style="flex:1;">Пропустить</button>
+        <button class="btn primary" id="tutorial-next" style="flex:1;">Далее</button>
+      </div>
+    </div>
+  </div>
+
   <div class="setup" id="setup" hidden>
     <div class="setup-card">
       <h2>Нужен ключ TMDB</h2>
@@ -72,9 +102,8 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="backdrop" id="overlay" hidden></div>
 
-  <!-- Порядок важен: сначала настройки, потом TMDB, потом само приложение -->
-  <script src="/scripts/config.js"></script>
-  <script src="/scripts/tmdb.js"></script>
-  <script src="/scripts/app.js"></script>
+  <script src="scripts/config.js"></script>
+  <script src="scripts/tmdb.js"></script>
+  <script src="scripts/app.js"></script>
 </body>
 </html>

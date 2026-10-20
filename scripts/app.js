@@ -1,55 +1,27 @@
-/* ============================================================
-   FILMDER: интерфейс приложения.
-   Данные о фильмах приходят из tmdb.js, а здесь всё, что видит и нажимает человек.
-
-   Разделы файла:
-     1. Состояние и сохранение
-     2. Мелкие помощники и анимации
-     3. Колода: подгрузка фильмов из TMDB
-     4. Лента жанров
-     5. Экран «Свайп»: карточки и перетаскивание
-     6. Уведомление сверху
-     7. Экран «Мой вечер»
-     8. Окно фильма с трейлером
-     9. Обработчики нажатий
-    10. Запуск и заставка
-   ============================================================ */
-
 const $ = sel => document.querySelector(sel);
 
-/* ------------------------------------------------------------
-   1. СОСТОЯНИЕ И СОХРАНЕНИЕ
-   Всё важное хранится в localStorage браузера и переживает перезапуск.
-   liked  : фильмы «на вечер». Храним краткий снимок (название, постер...), чтобы список открывался без запросов.
-   passed : номера фильмов, которые вы свайпнули влево.
-   urls   : ваши ссылки «Смотреть» (на сервер на ПК или Google Drive) по номеру фильма.
-   genre  : выбранный жанр (0 = все).
-   ------------------------------------------------------------ */
-const STORE_KEY = "filmder-tmdb-v1";
-let state = { liked: [], passed: [], urls: {}, genre: 0 };
+const STORE_KEY = "filmder-tmdb-v2";
+let state = { liked: [], passed: [], urls: {}, genre: 0, multiGenres: [] };
 try {
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
   if (saved) state = Object.assign(state, saved);
-} catch (e) { /* хранилище может быть недоступно, тогда просто работаем без сохранения */ }
+} catch (e) {}
 const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} };
 
 const isLiked = id => state.liked.some(m => m.id === id);
 const isSeen = id => isLiked(id) || state.passed.includes(id);
-const snap = m => ({ id: m.id, title: m.title, orig: m.orig, year: m.year, rating: m.rating, poster: m.poster, runtime: m.runtime || 0 });
+const snap = m => ({ id: m.id, title: m.title, orig: m.orig, year: m.year, rating: m.rating, poster: m.poster, runtime: m.runtime || 0, genres: m.genres || [] });
 
-let genres = [];        // список жанров из TMDB
-let deck = [];          // очередь фильмов для свайпа (верхняя карточка это deck[0])
-let paging = newPaging();   // на какой странице TMDB мы остановились
-let history = [];       // что вы свайпали, нужно для кнопки «вернуть»
-let busy = false;       // true, пока карточка улетает
-let sheetMovie = null;  // фильм, открытый в окне с трейлером
+let genres = [];
+let deck = [];
+let paging = newPaging();
+let history = [];
+let busy = false;
+let sheetMovie = null;
 
 function newPaging() { return { page: 0, total: 1, loading: false, error: null }; }
 
-/* ------------------------------------------------------------
-   2. МЕЛКИЕ ПОМОЩНИКИ И АНИМАЦИИ
-   ------------------------------------------------------------ */
-const RM = matchMedia("(prefers-reduced-motion: reduce)").matches;   // человек просит поменьше анимаций
+const RM = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
@@ -59,22 +31,17 @@ function plural(n) { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ?
 const ICON_PLAY = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>`;
 const youtubeSearch = m => "https://www.youtube.com/results?search_query=" + encodeURIComponent(`${m.title} ${m.year} официальный трейлер`);
 
-/* Короткая анимация через встроенный Web Animations API */
 function anim(el, keyframes, options) {
   if (!el || RM || !el.animate) return null;
   return el.animate(keyframes, Object.assign({ fill: "backwards", easing: "cubic-bezier(.2,.9,.25,1)" }, options));
 }
 const bump = el => anim(el, [{ transform: "scale(1)" }, { transform: "scale(1.35)" }, { transform: "scale(1)" }], { duration: 380 });
 
-/* Картинки появляются плавно, когда загрузились */
-document.addEventListener("load", e => { if (e.target.tagName === "IMG") e.target.classList.add("ready"); }, true);
-
 function posterHtml(path, size, alt) {
   const src = TMDB.img(path, size);
   return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false" decoding="async">` : ""}</div>`;
 }
 
-/* Брызги частиц вокруг кнопки */
 function burst(btn, color, count) {
   if (RM) return;
   const r = btn.getBoundingClientRect();
@@ -93,24 +60,47 @@ function burst(btn, color, count) {
   }
 }
 
-/* ------------------------------------------------------------
-   3. КОЛОДА: ПОДГРУЗКА ФИЛЬМОВ ИЗ TMDB
-   Мы не грузим всё сразу, а берём страницу за страницей (по 20 фильмов)
-   и докладываем в колоду, когда она подходит к концу.
-   ------------------------------------------------------------ */
+function burstDelete(rowEl) {
+  if (RM) return;
+  const r = rowEl.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  for (let i = 0; i < 14; i++) {
+    const p = document.createElement("span");
+    const s = 3 + Math.random() * 5;
+    p.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;width:${s}px;height:${s}px;border-radius:50%;background:var(--nope);pointer-events:none;z-index:40`;
+    document.body.appendChild(p);
+    const a = Math.random() * Math.PI * 2, d = 30 + Math.random() * 50;
+    const an = p.animate([
+      { transform: "translate(0,0) scale(1)", opacity: 1 },
+      { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(0)`, opacity: 0 }
+    ], { duration: 500 + Math.random() * 200, easing: "cubic-bezier(.1,.7,.3,1)" });
+    an.onfinish = () => p.remove();
+  }
+}
+
 async function fillDeck(min = 8) {
   const p = paging;
   if (p.loading) return;
   p.loading = true; p.error = null;
   try {
-    let guard = 0;   // защита: не делаем больше 6 запросов за раз
-    while (deck.length < min && p.page < p.total && guard++ < 6) {
-      p.page++;
-      const data = await TMDB.discover(state.genre, p.page);
-      if (p !== paging) return;   // пока ждали, вы сменили жанр, этот ответ уже не нужен
-      p.total = Math.min(data.totalPages, 40);
+    let guard = 0;
+    if (p.page === 0) p.page = 1;
+
+    while (deck.length < min && p.page <= p.total && guard++ < 6) {
+      const filter = state.multiGenres.length ? state.multiGenres : (state.genre || null);
+      const data = await TMDB.discover(filter, p.page);
+      if (p !== paging) return;
+      
+      p.total = Math.min(data.totalPages || 40, 40);
+      
       for (const m of data.items) {
         if (m.poster && !isSeen(m.id) && !deck.some(d => d.id === m.id)) deck.push(m);
+      }
+      
+      if (deck.length < min && p.page < p.total) {
+        p.page++;
+      } else {
+        break;
       }
     }
   } catch (e) {
@@ -119,80 +109,23 @@ async function fillDeck(min = 8) {
   p.loading = false;
 }
 
-/* Дозагрузка в фоне, пока вы свайпаете */
 function topUp() {
   if (deck.length >= 6 || paging.page >= paging.total || paging.loading) return;
   const p = paging;
   fillDeck(10).then(() => {
     if (p !== paging) return;
     const shown = $("#stage").querySelectorAll(".card").length;
-    if (shown < Math.min(3, deck.length)) renderSwipe("fill");   // на экране не хватало карточек, добавляем
+    if (shown < Math.min(3, deck.length)) renderSwipe("fill");
   });
 }
 
-/* Заново наполнить колоду (после смены жанра, ошибки и так далее) */
 async function refill(mode) {
   const p = paging;
-  renderSwipe();                   // покажет «Ищу фильмы…»
+  renderSwipe();
   await fillDeck(8);
   if (p === paging) renderSwipe(mode || "init");
 }
 
-/* ------------------------------------------------------------
-   4. ЛЕНТА ЖАНРОВ
-   Прокручивается пальцем, колёсиком и перетаскиванием мышью.
-   ------------------------------------------------------------ */
-function renderChips() {
-  const all = [{ id: 0, name: "Все" }, ...genres];   // «Все» первым, остальные уже отсортированы по алфавиту
-  if (!all.some(g => g.id === state.genre)) state.genre = 0;
-  $("#chips").innerHTML = all.map((g, i) =>
-    `<button class="chip" style="--i:${i}" data-genre="${g.id}" aria-pressed="${g.id === state.genre}">${esc(g.name)}</button>`).join("");
-}
-
-/* Затухание по краям ленты показываем только там, где есть что прокручивать */
-function updateFade() {
-  const c = $("#chips");
-  const max = c.scrollWidth - c.clientWidth;
-  c.style.setProperty("--fl", c.scrollLeft > 4 ? "28px" : "0px");
-  c.style.setProperty("--fr", c.scrollLeft < max - 4 ? "28px" : "0px");
-}
-function centerChip(chip, smooth) {
-  const c = $("#chips");
-  const cr = c.getBoundingClientRect(), tr = chip.getBoundingClientRect();
-  c.scrollTo({ left: c.scrollLeft + (tr.left - cr.left) - (cr.width - tr.width) / 2, behavior: smooth && !RM ? "smooth" : "auto" });
-}
-(function bindChips() {
-  const c = $("#chips");
-  let d = null, moved = false;
-  c.addEventListener("pointerdown", e => { if (e.pointerType === "mouse") { d = { x: e.clientX, s: c.scrollLeft }; moved = false; } });
-  window.addEventListener("pointermove", e => {
-    if (!d) return;
-    const dx = e.clientX - d.x;
-    if (Math.abs(dx) > 4) moved = true;
-    if (moved) c.scrollLeft = d.s - dx;
-  });
-  window.addEventListener("pointerup", () => { d = null; });
-  // если ленту тянули мышью, это не нажатие на жанр
-  c.addEventListener("click", e => { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
-  c.addEventListener("wheel", e => {
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { c.scrollLeft += e.deltaY; e.preventDefault(); }
-  }, { passive: false });
-  c.addEventListener("scroll", updateFade, { passive: true });
-  window.addEventListener("resize", updateFade);
-})();
-
-function selectGenre(id, chip) {
-  state.genre = id; save();
-  $("#chips").querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", +c.dataset.genre === id));
-  if (chip) centerChip(chip, true);
-  deck = []; history = []; paging = newPaging();
-  refill("filter");
-}
-
-/* ------------------------------------------------------------
-   5. ЭКРАН «СВАЙП»
-   Положение карточек в стопке: чем глубже, тем ниже, меньше и темнее.
-   ------------------------------------------------------------ */
 const tf = i => `translateY(${i * 10}px) scale(${1 - i * 0.04})`;
 const fl = i => `brightness(${1 - i * 0.22})`;
 
@@ -209,9 +142,9 @@ function cardHtml(m) {
     <div class="stamp like">В ВЕЧЕР</div><div class="stamp nope">МИМО</div>`;
 }
 
-/* mode: "init" при запуске, "filter" при смене жанра, "fly" после свайпа, "undo" при возврате, "fill" при дозагрузке */
 function renderSwipe(mode, undoDir) {
   const stage = $("#stage");
+  if (!stage) return;
   $("#btn-undo").disabled = history.length === 0;
   $("#btn-nope").disabled = $("#btn-like").disabled = deck.length === 0;
 
@@ -225,7 +158,7 @@ function renderSwipe(mode, undoDir) {
     } else {
       html = `<div class="empty">
         <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M8 4v5M16 4v5"/></svg>
-        <h2>Фильмы в этом жанре закончились</h2><p>Выберите другой жанр сверху${state.passed.length ? " или верните пропущенные" : ""}.</p>
+        <h2>Фильмы по вашему запросу закончились</h2><p>Выберите другие жанры${state.passed.length ? " или верните пропущенные" : ""}.</p>
         ${state.passed.length ? `<button class="btn primary" id="btn-reset">Показать пропущенные снова</button>` : ""}</div>`;
     }
     stage.innerHTML = html;
@@ -235,7 +168,6 @@ function renderSwipe(mode, undoDir) {
 
   const top = deck.slice(0, 3);
   stage.innerHTML = "";
-  // Рисуем с конца, чтобы верхняя карточка оказалась сверху в DOM
   for (let i = top.length - 1; i >= 0; i--) {
     const el = document.createElement("div");
     el.className = "card";
@@ -264,7 +196,6 @@ function renderSwipe(mode, undoDir) {
   }
 }
 
-/* Подсказка при первом запуске: карточка слегка качнётся */
 function hint(el) {
   el._hint = anim(el, [
     { transform: tf(0) },
@@ -274,7 +205,6 @@ function hint(el) {
   ], { duration: 1300, delay: 1600, fill: "none", easing: "ease-in-out" });
 }
 
-/* Перетаскивание верхней карточки. Короткое касание без движения открывает окно с трейлером. */
 function bindDrag(el, m) {
   let start = null;
   const likeStamp = el.querySelector(".stamp.like"), nopeStamp = el.querySelector(".stamp.nope");
@@ -292,7 +222,7 @@ function bindDrag(el, m) {
     start.dx = e.clientX - start.x; start.dy = e.clientY - start.y;
     if (Math.abs(start.dx) > 6 || Math.abs(start.dy) > 6) start.moved = true;
     el.style.transform = `translate(${start.dx}px, ${start.dy}px) rotate(${start.dx / 18}deg)`;
-    pos.style.transform = `translateX(${start.dx * 0.07}px) scale(1.1)`;   // лёгкий параллакс постера
+    pos.style.transform = `translateX(${start.dx * 0.07}px) scale(1.1)`;
     const k = Math.min(Math.abs(start.dx) / 100, 1);
     likeStamp.style.opacity = start.dx > 0 ? k : 0;
     nopeStamp.style.opacity = start.dx < 0 ? k : 0;
@@ -303,10 +233,10 @@ function bindDrag(el, m) {
     if (!start) return;
     const s = start; start = null;
     pos.style.transition = "";
-    if (!s.moved) { el.style.transition = ""; pos.style.transform = ""; openSheet(m); return; }   // касание: открыть трейлер
+    if (!s.moved) { el.style.transition = ""; pos.style.transform = ""; openSheet(m); return; }
     if (s.dx > 90) fly(el, m, 1);
     else if (s.dx < -90) fly(el, m, -1);
-    else {   // не дотянули до порога: возвращаем пружиной
+    else {
       el.style.transition = "transform .5s cubic-bezier(.3,1.5,.4,1)";
       el.style.transform = tf(0);
       pos.style.transform = "";
@@ -317,13 +247,12 @@ function bindDrag(el, m) {
   el.addEventListener("pointercancel", end);
 }
 
-/* Карточка улетает вправо (dir = 1) или влево (dir = -1), остальные подъезжают вперёд */
 function fly(el, m, dir) {
   if (busy) return;
   busy = true;
   const cards = [...$("#stage").querySelectorAll(".card")];
   cards.forEach((c, k) => {
-    const i = cards.length - 1 - k;   // 0 это верхняя
+    const i = cards.length - 1 - k;
     if (i > 0) {
       c.style.transition = "transform .45s cubic-bezier(.2,.9,.25,1), filter .45s";
       c.style.transform = tf(i - 1);
@@ -336,7 +265,6 @@ function fly(el, m, dir) {
   setTimeout(() => { busy = false; decide(m, dir); }, 380);
 }
 
-/* То же самое, но по нажатию на кнопки внизу или стрелки на клавиатуре */
 function swipeButton(dir) {
   if (busy || !deck.length) return;
   const el = $("#stage .card:last-child");
@@ -349,7 +277,6 @@ function swipeButton(dir) {
   fly(el, deck[0], dir);
 }
 
-/* Решение принято: запоминаем и показываем следующую карточку */
 function decide(m, dir) {
   deck = deck.filter(d => d.id !== m.id);
   if (dir > 0) {
@@ -366,15 +293,17 @@ function decide(m, dir) {
   topUp();
 }
 
-/* Длительность есть только в подробностях, поэтому для понравившегося фильма докачиваем её в фоне */
 function loadRuntime(id) {
   TMDB.details(id).then(d => {
     const s = state.liked.find(x => x.id === id);
-    if (s && d.runtime) { s.runtime = d.runtime; save(); renderList(); }
+    if (s) {
+      if (d.runtime) s.runtime = d.runtime;
+      if (d.genres) s.genres = d.genres;
+      save(); renderList();
+    }
   }).catch(() => {});
 }
 
-/* Вернуть последнее действие */
 function undo() {
   const last = history.pop();
   if (!last) return;
@@ -385,24 +314,26 @@ function undo() {
   save(); hideToast(); renderAll("undo", last.dir);
 }
 
-/* ------------------------------------------------------------
-   6. УВЕДОМЛЕНИЕ СВЕРХУ
-   ------------------------------------------------------------ */
 let toastTimer = null;
 function showToast(m) {
   const t = $("#toast");
   t.innerHTML = `<span class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
     <div class="tmain" data-open="${m.id}"><small>Добавлено в мой вечер</small><b>${esc(m.title)}</b></div>
     <button class="tundo" data-undo>Отменить</button><i class="bar"></i>`;
+  
+  t.classList.remove("show");
+  void t.offsetWidth;
   t.classList.add("show");
+
   clearTimeout(toastTimer);
   toastTimer = setTimeout(hideToast, 3300);
 }
-function hideToast() { clearTimeout(toastTimer); $("#toast").classList.remove("show"); }
 
-/* ------------------------------------------------------------
-   7. ЭКРАН «МОЙ ВЕЧЕР»
-   ------------------------------------------------------------ */
+function hideToast() { 
+  clearTimeout(toastTimer); 
+  $("#toast").classList.remove("show"); 
+}
+
 const validUrl = u => /^https?:\/\/\S+$/i.test(u);
 
 function watchButton(m, cls) {
@@ -420,23 +351,108 @@ function renderList() {
       <h2>Вечер пока пуст</h2><p>Свайпайте вправо фильмы, которые хочется посмотреть. Они появятся здесь.</p></div>`;
     return;
   }
+
   const known = items.filter(m => m.runtime), total = known.reduce((s, m) => s + m.runtime, 0);
   const totalText = known.length ? `Всего ${known.length < items.length ? "около " : ""}${dur(total)} без перерывов` : "Считаю длительность…";
-  list.innerHTML = `<div class="summary" style="--i:0"><b>${items.length} ${plural(items.length)}</b><span>${totalText}</span></div>` +
-    items.map((m, i) => `<div class="row" style="--i:${i + 1}" data-row="${m.id}">
-      <div class="thumb" data-open="${m.id}">${posterHtml(m.poster, "w185", m.title)}</div>
-      <div class="row-main">
-        <button class="row-title" data-open="${m.id}">${esc(m.title)}</button>
-        <div class="row-meta">${[m.year, dur(m.runtime), `★ ${m.rating.toFixed(1)}`].filter(Boolean).join(" · ")}</div>
-        <div class="row-actions">${watchButton(m, "primary")}<button class="btn ghost" data-remove="${m.id}">Убрать</button></div>
-      </div></div>`).join("");
+
+  const groups = {};
+  items.forEach(m => {
+    let cat = "Без категории";
+    if (m.genres && m.genres.length) {
+      const animGenre = m.genres.find(g => g === "Мультфильмы" || g === "Аниме");
+      cat = animGenre || m.genres[0];
+    }
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(m);
+  });
+
+  let html = `<div class="summary" style="--i:0"><b>${items.length} ${plural(items.length)}</b><span>${totalText}</span></div>`;
+  let idx = 1;
+
+  for (const [cat, movies] of Object.entries(groups)) {
+    html += `<div class="list-category-title">${esc(cat)}</div>`;
+    for (const m of movies) {
+      html += `<div class="row-container" data-id="${m.id}">
+        <div class="row-delete-bg">Удалить</div>
+        <div class="row" style="--i:${idx++}" data-row="${m.id}">
+          <div class="thumb" data-open="${m.id}">${posterHtml(m.poster, "w185", m.title)}</div>
+          <div class="row-main">
+            <button class="row-title" data-open="${m.id}">${esc(m.title)}</button>
+            <div class="row-meta">${[m.year, dur(m.runtime), `★ ${m.rating.toFixed(1)}`].filter(Boolean).join(" · ")}</div>
+            <div class="row-actions">${watchButton(m, "primary")}</div>
+          </div>
+        </div>
+      </div>`;
+    }
+  }
+
+  list.innerHTML = html;
+  bindRowSwipe();
 }
 
-/* ------------------------------------------------------------
-   8. ОКНО ФИЛЬМА С ТРЕЙЛЕРОМ
-   Сначала сразу показываем то, что уже знаем (название, постер, описание),
-   а подробности и трейлер догружаем и подставляем, как только они придут.
-   ------------------------------------------------------------ */
+function bindRowSwipe() {
+  document.querySelectorAll(".row").forEach(row => {
+    let startX = 0, startY = 0, currentX = 0, isDragging = false, locked = false;
+    const container = row.closest(".row-container");
+    const id = +container.dataset.id;
+
+    row.addEventListener("pointerdown", e => {
+      if (e.target.closest("button, a, .thumb")) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      isDragging = true;
+      locked = false;
+      row.style.transition = "none";
+      row.setPointerCapture(e.pointerId);
+    });
+
+    row.addEventListener("pointermove", e => {
+      if (!isDragging) return;
+      currentX = e.clientX - startX;
+      const currentY = e.clientY - startY;
+
+      if (!locked) {
+        if (Math.abs(currentY) > Math.abs(currentX)) {
+          isDragging = false;
+          row.style.transform = "translateX(0)";
+          return;
+        }
+        if (Math.abs(currentX) > 10) locked = true;
+      }
+
+      if (locked && currentX < 0) {
+        row.style.transform = `translateX(${currentX}px)`;
+      }
+    });
+
+    const finishDrag = () => {
+      if (!isDragging && !locked) return;
+      isDragging = false;
+      locked = false;
+      
+      if (currentX < -90) {
+        row.style.transition = "transform .25s ease-out, opacity .25s ease-out";
+        row.style.transform = "translateX(-120%)";
+        row.style.opacity = "0";
+        burstDelete(row);
+        container.classList.add("removing");
+        setTimeout(() => {
+          state.liked = state.liked.filter(x => x.id !== id);
+          save();
+          renderAll();
+        }, 280);
+      } else {
+        row.style.transition = "transform .3s var(--spring)";
+        row.style.transform = "translateX(0)";
+      }
+      currentX = 0;
+    };
+
+    row.addEventListener("pointerup", finishDrag);
+    row.addEventListener("pointercancel", finishDrag);
+  });
+}
+
 function findMovie(id) {
   return deck.find(m => m.id === id) || state.liked.find(m => m.id === id) || history.map(h => h.movie).find(m => m.id === id);
 }
@@ -447,7 +463,6 @@ function closeOverlay() {
   o.classList.remove("static");
   o.classList.add("closing");
   sheetMovie = null;
-  // убираем содержимое после анимации: так плеер выключается и трейлер перестаёт играть
   setTimeout(() => { if (!sheetMovie) { o.hidden = true; o.innerHTML = ""; } o.classList.remove("closing"); }, RM ? 0 : 240);
 }
 
@@ -457,7 +472,6 @@ function mediaHtml(m) {
 }
 
 function playerHtml(key) {
-  // На iPhone видео со звуком само не стартует, поэтому запускаем без звука. Звук включается в плеере.
   const mute = IS_IOS ? "&mute=1" : "";
   return `<iframe src="https://www.youtube-nocookie.com/embed/${key}?autoplay=1&rel=0&playsinline=1${mute}" title="Трейлер"
     allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
@@ -470,13 +484,14 @@ function actionsHtml(m) {
 function openSheet(m, focusSrc) {
   hideToast();
   const o = $("#overlay");
-  const wasOpen = !o.hidden && !o.classList.contains("closing");   // если окно уже открыто, не проигрываем анимацию заново
+  const wasOpen = !o.hidden && !o.classList.contains("closing");
   sheetMovie = Object.assign({}, m);
   const id = m.id;
   const url = state.urls[id] || "";
   o.classList.remove("closing");
   o.classList.toggle("static", wasOpen);
-  o.innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(m.title)}">
+
+  o.innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(m.title)}" id="sheet-element">
     <div class="sheet-media" id="sheet-media">${mediaHtml(m)}</div>
     <button class="close" data-close aria-label="Закрыть"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <div class="sheet-body">
@@ -490,39 +505,96 @@ function openSheet(m, focusSrc) {
         <small id="src-note">${url ? "Ссылка сохранена. Кнопка «Смотреть» откроет её в новой вкладке." : "Вставьте ссылку один раз, дальше «Смотреть» будет открывать фильм сразу."}</small>
       </div>
       <div class="sheet-actions" id="sheet-actions">${actionsHtml(m)}</div>
+      <div class="related-section" id="related-section"></div>
     </div></div>`;
+
   o.hidden = false;
   fillSheetInfo(sheetMovie);
   if (focusSrc) { $("#src-input").focus(); $("#src-note").textContent = "Сначала добавьте ссылку на этот фильм, потом «Смотреть» заработает."; }
 
-  // Подробности и трейлер приходят отдельным запросом
+  bindSheetSwipeToClose();
+
   TMDB.details(id).then(d => {
-    if (!sheetMovie || sheetMovie.id !== id) return;   // окно уже закрыли или открыли другой фильм
+    if (!sheetMovie || sheetMovie.id !== id) return;
     sheetMovie = Object.assign(sheetMovie, d);
     fillSheetInfo(sheetMovie);
     const media = $("#sheet-media");
-    if (!media) return;
-    if (d.trailerKey) {
-      media.innerHTML = playerHtml(d.trailerKey);
-    } else {
-      media.querySelector(".spinner")?.remove();
-      media.insertAdjacentHTML("beforeend", `<div class="no-trailer"><span>Трейлер не найден</span><a class="btn" href="${youtubeSearch(sheetMovie)}" target="_blank" rel="noopener">Искать на YouTube</a></div>`);
+    if (media) {
+      if (d.trailerKey) {
+        media.innerHTML = playerHtml(d.trailerKey);
+      } else {
+        media.querySelector(".spinner")?.remove();
+        media.insertAdjacentHTML("beforeend", `<div class="no-trailer"><span>Трейлер не найден</span><a class="btn" href="${youtubeSearch(sheetMovie)}" target="_blank" rel="noopener">Искать на YouTube</a></div>`);
+      }
     }
+    renderRelated(d.related);
   }).catch(() => {
     const media = $("#sheet-media");
-    if (!media || !sheetMovie || sheetMovie.id !== id) return;
-    media.querySelector(".spinner")?.remove();
-    media.insertAdjacentHTML("beforeend", `<div class="no-trailer"><span>Не удалось загрузить трейлер</span><a class="btn" href="${youtubeSearch(sheetMovie)}" target="_blank" rel="noopener">YouTube</a></div>`);
+    if (media) {
+      media.querySelector(".spinner")?.remove();
+      media.insertAdjacentHTML("beforeend", `<div class="no-trailer"><span>Не удалось загрузить трейлер</span><a class="btn" href="${youtubeSearch(sheetMovie)}" target="_blank" rel="noopener">YouTube</a></div>`);
+    }
   });
 }
 
-/* Подставляет в окно то, что известно о фильме на данный момент */
+function bindSheetSwipeToClose() {
+  const sheet = $("#sheet-element");
+  if (!sheet) return;
+  let startY = 0, currentY = 0, isDragging = false;
+
+  sheet.addEventListener("pointerdown", e => {
+    if (sheet.scrollTop <= 0) {
+      startY = e.clientY;
+      isDragging = true;
+    }
+  });
+
+  sheet.addEventListener("pointermove", e => {
+    if (!isDragging) return;
+    currentY = e.clientY - startY;
+    if (currentY > 0) {
+      sheet.style.transform = `translateY(${currentY}px)`;
+    }
+  });
+
+  const endDrag = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    sheet.style.transition = "transform .3s var(--spring)";
+    if (currentY > 100) {
+      sheet.style.transform = "translateY(100%)";
+      setTimeout(closeOverlay, 250);
+    } else {
+      sheet.style.transform = "translateY(0)";
+    }
+    currentY = 0;
+    setTimeout(() => sheet.style.transition = "", 300);
+  };
+
+  sheet.addEventListener("pointerup", endDrag);
+  sheet.addEventListener("pointercancel", endDrag);
+}
+
 function fillSheetInfo(m) {
   $("#sheet-sub").textContent = [m.orig && m.orig !== m.title ? m.orig : "", m.year, dur(m.runtime)].filter(Boolean).join(" · ");
   $("#sheet-tags").innerHTML = (m.genres || []).map(x => `<span class="tag">${esc(x)}</span>`).join("");
   $("#sheet-overview").textContent = m.overview || (m.runtime ? "У этого фильма пока нет описания на выбранном языке." : "");
   const facts = [["Рейтинг", m.rating ? `★ ${m.rating.toFixed(1)}` : ""], ["Режиссёр", m.director], ["В ролях", (m.cast || []).join(", ")]].filter(f => f[1]);
   $("#sheet-facts").innerHTML = facts.map(f => `<dt>${f[0]}</dt><dd>${esc(f[1])}</dd>`).join("");
+}
+
+function renderRelated(related) {
+  const sec = $("#related-section");
+  if (!sec || !related || !related.length) return;
+  sec.innerHTML = `<div class="related-title">Похожие фильмы</div>
+    <div class="related-scroll">
+      ${related.slice(0, 8).map(r => `
+        <div class="related-card" data-related-id="${r.id}">
+          <div class="related-poster">${r.poster ? `<img src="${TMDB.img(r.poster, "w185")}" alt="${esc(r.title)}" loading="lazy">` : ""}</div>
+          <div class="related-name">${esc(r.title)}</div>
+        </div>
+      `).join("")}
+    </div>`;
 }
 
 function saveSrc() {
@@ -549,42 +621,99 @@ function toggleLike(m) {
   $("#sheet-actions").innerHTML = actionsHtml(m);
 }
 
-/* ------------------------------------------------------------
-   9. ОБРАБОТЧИКИ НАЖАТИЙ
-   Один общий слушатель на весь документ: смотрим, на что именно нажали.
-   Нужное действие зашито в data-атрибутах кнопок (data-open, data-remove и так далее).
-   ------------------------------------------------------------ */
+function openFiltersModal() {
+  const grid = $("#filter-grid");
+  grid.innerHTML = genres.map(g => `
+    <label class="filter-item">
+      <input type="checkbox" value="${g.id}" ${state.multiGenres.includes(g.id) ? "checked" : ""}>
+      <span>${esc(g.name)}</span>
+    </label>
+  `).join("");
+  $("#filters-overlay").hidden = false;
+}
+
+function applyFiltersModal() {
+  const checked = [...$("#filter-grid").querySelectorAll("input:checked")].map(i => i.value === "anime" ? "anime" : isNaN(i.value) ? i.value : +i.value);
+  state.multiGenres = checked;
+  state.genre = 0;
+  save();
+  $("#filters-overlay").hidden = true;
+  deck = []; history = []; paging = newPaging();
+  refill("filter");
+}
+
+function selectGenre(id) {
+  if (state.genre === id && state.multiGenres.length === 0) {
+    state.genre = 0;
+  } else {
+    state.genre = id;
+    state.multiGenres = [];
+  }
+  save();
+  deck = []; history = []; paging = newPaging();
+  refill("filter");
+}
+
+const tutorialSteps = [
+  { title: "Добро пожаловать в Filmder!", text: "Удобный способ находить фильмы на вечер с друзьями или в одиночку." },
+  { title: "Как свайпать", text: "Свайп вправо добавляет фильм в «Мой вечер», свайп влево — пропускает его." },
+  { title: "Жанры и фильтры", text: "Настраивайте мультивыбор жанров через кнопку «Фильтры» в правом верхнем углу." },
+  { title: "Мой вечер", text: "Здесь хранятся ваши выбранные фильмы, разбитые по категориям. Смахните фильм влево, чтобы удалить его." }
+];
+let currentTutorialStep = 0;
+
+function checkTutorial() {
+  if (!localStorage.getItem("filmder-tutorial-shown")) {
+    showTutorialStep(0);
+    $("#tutorial").hidden = false;
+  }
+}
+
+function showTutorialStep(step) {
+  currentTutorialStep = step;
+  if (step >= tutorialSteps.length) {
+    $("#tutorial").hidden = true;
+    localStorage.setItem("filmder-tutorial-shown", "true");
+    return;
+  }
+  $("#tutorial-step-counter").textContent = `Шаг ${step + 1} из ${tutorialSteps.length}`;
+  $("#tutorial-title").textContent = tutorialSteps[step].title;
+  $("#tutorial-text").textContent = tutorialSteps[step].text;
+  $("#tutorial-next").textContent = step === tutorialSteps.length - 1 ? "Начать" : "Далее";
+}
+
 document.addEventListener("click", e => {
-  const t = e.target.closest("button, [data-open], .backdrop");
+  const t = e.target.closest("button, [data-open], [data-related-id], .backdrop");
   if (!t) return;
   if (t.id === "tab-swipe") return setTab("swipe");
   if (t.id === "tab-list") return setTab("list");
   if (t.id === "btn-like") return swipeButton(1);
   if (t.id === "btn-nope") return swipeButton(-1);
   if (t.id === "btn-undo") return undo();
+  if (t.id === "btn-open-filters") return openFiltersModal();
+  if (t.id === "btn-apply-filters") return applyFiltersModal();
+  if (t.id === "btn-reset-filters") { $("#filter-grid").querySelectorAll("input").forEach(i => i.checked = false); }
+  if (t.id === "tutorial-next") return showTutorialStep(currentTutorialStep + 1);
+  if (t.id === "tutorial-skip") { $("#tutorial").hidden = true; localStorage.setItem("filmder-tutorial-shown", "true"); }
   if (t.id === "btn-retry") { if (!genres.length) return boot(); paging = newPaging(); return refill("init"); }
   if (t.id === "btn-reset") { state.passed = []; history = []; save(); paging = newPaging(); return refill("filter"); }
   if (t.id === "src-save") return saveSrc();
-  if ("genre" in t.dataset) return selectGenre(+t.dataset.genre, t);
   if ("undo" in t.dataset) return undo();
   if (t.dataset.open) { const m = findMovie(+t.dataset.open); return m && openSheet(m); }
+  if (t.dataset.relatedId) { const m = findMovie(+t.dataset.relatedId); if (m) openSheet(m); else TMDB.details(+t.dataset.relatedId).then(openSheet); return; }
   if (t.dataset.addSrc) { const m = findMovie(+t.dataset.addSrc); return m && openSheet(m, true); }
-  if (t.dataset.remove) {
-    const id = +t.dataset.remove;
-    const remove = () => { state.liked = state.liked.filter(x => x.id !== id); save(); renderAll(); };
-    const row = $(`[data-row="${id}"]`);
-    if (row && !RM) { row.classList.add("out"); return setTimeout(remove, 340); }
-    return remove();
-  }
   if ("toggle" in t.dataset) return sheetMovie && toggleLike(sheetMovie);
   if ("close" in t.dataset) return closeOverlay();
-  if (t.classList.contains("backdrop") && e.target === t) return closeOverlay();
+  if (t.classList.contains("backdrop") && e.target === t) {
+    if (t.id === "filters-overlay") t.hidden = true;
+    else closeOverlay();
+  }
 });
 
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT") { if (e.key === "Enter") saveSrc(); return; }
-  if (e.key === "Escape") closeOverlay();
-  if ($("#overlay").hidden && !$("#view-swipe").hidden) {
+  if (e.key === "Escape") { closeOverlay(); $("#filters-overlay").hidden = true; }
+  if ($("#overlay").hidden && $("#filters-overlay").hidden && !$("#view-swipe").hidden) {
     if (e.key === "ArrowRight") swipeButton(1);
     if (e.key === "ArrowLeft") swipeButton(-1);
   }
@@ -616,11 +745,6 @@ function renderAll(mode, undoDir) {
   prevLiked = state.liked.length;
 }
 
-/* ------------------------------------------------------------
-   10. ЗАПУСК И ЗАСТАВКА
-   Заставка: красная точка появляется, дважды пульсирует,
-   затем из неё влево выезжает слово «filmder». Нажатие по заставке пропускает её.
-   ------------------------------------------------------------ */
 let appStarted = false;
 
 async function boot() {
@@ -628,17 +752,14 @@ async function boot() {
     paging = newPaging();
     genres = await TMDB.genres();
   } catch (e) {
-    paging.error = e.message;   // покажем ошибку с кнопкой «Повторить»
+    paging.error = e.message;
     renderSwipe();
     return;
   }
-  renderChips();
-  const active = document.querySelector('.chip[aria-pressed="true"]');
-  if (active) centerChip(active, false);
-  updateFade();
-  renderAll("init");   // сначала «Ищу фильмы…»
+  renderAll("init");
   await fillDeck(8);
-  renderSwipe("init"); // потом карточки
+  renderSwipe("init");
+  checkTutorial();
 }
 
 function startApp() {
@@ -657,15 +778,12 @@ async function runSplash() {
       sp.addEventListener("click", () => sp.getAnimations({ subtree: true }).forEach(a => a.finish()));
       try { await Promise.race([document.fonts.ready, wait(1200)]); } catch (e) {}
       const glow = "rgba(255, 122, 92, ";
-      // 1. Точка появляется
       dot.animate([{ transform: "scale(0)" }, { transform: "scale(1)" }], { duration: 450, easing: "cubic-bezier(.3,1.5,.4,1)", fill: "forwards" });
-      // 2. Двойная пульсация с расходящимся свечением
       [500, 1150].forEach(delay => dot.animate([
         { transform: "scale(1)", boxShadow: `0 0 0 0 ${glow}.55)` },
         { transform: "scale(1.5)", boxShadow: `0 0 0 0 ${glow}.45)`, offset: .4 },
         { transform: "scale(1)", boxShadow: `0 0 0 18px ${glow}0)` }
       ], { duration: 650, delay, easing: "ease-out" }));
-      // 3. Слово раскрывается от точки влево. Пока слова нет, сдвигаем группу, чтобы точка стояла по центру.
       const shift = (word.getBoundingClientRect().width + 8) / 2;
       const opt = { duration: 850, delay: 1750, easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" };
       mark.animate([{ transform: `translateX(${-shift}px)` }, { transform: "translateX(0)" }], opt);
@@ -673,7 +791,7 @@ async function runSplash() {
       await reveal.finished;
       await wait(350);
     }
-    startApp();   // приложение начинает загрузку, пока заставка тает
+    startApp();
     if (animated) await sp.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 450, fill: "forwards" }).finished;
   } catch (e) {
     startApp();
