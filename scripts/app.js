@@ -10,7 +10,15 @@ const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)
 
 const isLiked = id => state.liked.some(m => m.id === id);
 const isSeen = id => isLiked(id) || state.passed.includes(id);
-const snap = m => ({ id: m.id, title: m.title, orig: m.orig, year: m.year, rating: m.rating, poster: m.poster, runtime: m.runtime || 0, genres: m.genres || [] });
+
+const snap = m => {
+  let cat = m.category || "Без категории";
+  if (!m.category && m.genres && m.genres.length) {
+    const animGenre = m.genres.find(g => g === "Мультфильмы" || g === "Аниме");
+    cat = animGenre || m.genres[0];
+  }
+  return { id: m.id, title: m.title, orig: m.orig, year: m.year, rating: m.rating, poster: m.poster, runtime: m.runtime || 0, genres: m.genres || [], category: cat };
+};
 
 let genres = [];
 let deck = [];
@@ -37,8 +45,8 @@ function applyTheme(isLight, animate = false) {
 
   const overlay = document.createElement("div");
   overlay.className = "theme-transition-overlay";
-  const newBgColor = isLight ? "#EAECEC" : "#0a0a0d";
-  overlay.style.background = newBgColor;
+  const overlayColor = isLight ? "#EAECEC" : "#0a0a0d";
+  overlay.style.background = overlayColor;
   overlay.style.clipPath = `circle(0px at ${x}px ${y}px)`;
   document.body.appendChild(overlay);
 
@@ -46,7 +54,7 @@ function applyTheme(isLight, animate = false) {
     { clipPath: `circle(0px at ${x}px ${y}px)` },
     { clipPath: `circle(${maxRadius}px at ${x}px ${y}px)` }
   ], {
-    duration: 900, // Увеличено для максимальной плавности
+    duration: 650,
     easing: "cubic-bezier(0.22, 1, 0.36, 1)",
     fill: "forwards"
   });
@@ -54,7 +62,7 @@ function applyTheme(isLight, animate = false) {
   anim.onfinish = () => {
     document.documentElement.classList.toggle("light", isLight);
     if (themeCheckbox) themeCheckbox.checked = isLight;
-    
+
     const appEl = document.querySelector(".app");
     if (appEl) {
       appEl.classList.remove("theme-reveal");
@@ -66,7 +74,7 @@ function applyTheme(isLight, animate = false) {
       { opacity: 1 },
       { opacity: 0 }
     ], {
-      duration: 400,
+      duration: 300,
       easing: "ease-out",
       fill: "forwards"
     }).onfinish = () => overlay.remove();
@@ -106,20 +114,22 @@ function posterHtml(path, size, alt) {
   return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false" loading="lazy" decoding="async">` : ""}</div>`;
 }
 
+// Вылет частиц с плавным фейдом
 function burst(btn, color, count) {
   if (RM) return;
   const r = btn.getBoundingClientRect();
   const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
   for (let i = 0; i < count; i++) {
     const p = document.createElement("span");
-    const s = 4 + Math.random() * 4;
-    p.style.cssText = `position:fixed;left:${cx - s / 2}px;top:${cy - s / 2}px;width:${s}px;height:${s}px;border-radius:50%;background:${color};pointer-events:none;z-index:40`;
+    const s = 4 + Math.random() * 5;
+    p.style.cssText = `position:fixed;left:${cx - s / 2}px;top:${cy - s / 2}px;width:${s}px;height:${s}px;border-radius:50%;background:${color};pointer-events:none;z-index:4000;will-change:transform,opacity;`;
     document.body.appendChild(p);
-    const a = (i / count) * Math.PI * 2 + Math.random() * 0.6, d = 46 + Math.random() * 40;
+    const a = (i / count) * Math.PI * 2 + Math.random() * 0.6, d = 42 + Math.random() * 45;
     const an = p.animate([
-      { transform: "translate(0,0) scale(1)", opacity: 1 },
-      { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d - 14}px) scale(0)`, opacity: 0 }
-    ], { duration: 600 + Math.random() * 250, easing: "cubic-bezier(.1,.7,.3,1)" });
+      { transform: "translate(0,0) scale(0.4)", opacity: 0 },
+      { transform: `translate(${Math.cos(a) * (d * 0.4)}px, ${Math.sin(a) * (d * 0.4) - 8}px) scale(1.2)`, opacity: 1, offset: 0.3 },
+      { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d - 16}px) scale(0)`, opacity: 0 }
+    ], { duration: 550 + Math.random() * 250, easing: "cubic-bezier(.1,.7,.3,1)" });
     an.onfinish = () => p.remove();
   }
 }
@@ -280,7 +290,7 @@ function bindDrag(el, m) {
     start = { x: e.clientX, y: e.clientY, dx: 0, dy: 0, moved: false };
     el.setPointerCapture(e.pointerId);
     el.style.transition = "none";
-    pos.style.transition = "none";
+    if (pos) pos.style.transition = "none";
   });
 
   el.addEventListener("pointermove", e => {
@@ -290,7 +300,7 @@ function bindDrag(el, m) {
     if (Math.abs(start.dx) > 6 || Math.abs(start.dy) > 6) start.moved = true;
     
     el.style.transform = `translate(${start.dx}px, ${start.dy}px) rotate(${start.dx / 18}deg)`;
-    pos.style.transform = `translate(${-start.dx * 0.18}px, ${-start.dy * 0.18}px) scale(1.3)`;
+    if (pos) pos.style.transform = `translate(${-start.dx * 0.18}px, ${-start.dy * 0.18}px) scale(1.3)`;
 
     const k = Math.min(Math.abs(start.dx) / 100, 1);
     likeStamp.style.opacity = start.dx > 0 ? k : 0;
@@ -302,14 +312,14 @@ function bindDrag(el, m) {
   const end = () => {
     if (!start) return;
     const s = start; start = null;
-    pos.style.transition = "";
-    if (!s.moved) { el.style.transition = ""; pos.style.transform = ""; openSheet(m); return; }
+    if (pos) pos.style.transition = "";
+    if (!s.moved) { el.style.transition = ""; if (pos) pos.style.transform = ""; openSheet(m); return; }
     if (s.dx > 90) fly(el, m, 1);
     else if (s.dx < -90) fly(el, m, -1);
     else {
-      el.style.transition = "transform .5s cubic-bezier(.3,1.5,.4,1)";
+      el.style.transition = "transform .4s cubic-bezier(.3,1.35,.4,1)";
       el.style.transform = tf(0);
-      pos.style.transform = "";
+      if (pos) pos.style.transform = "";
       likeStamp.style.opacity = nopeStamp.style.opacity = 0;
     }
   };
@@ -325,15 +335,15 @@ function fly(el, m, dir) {
   cards.forEach((c, k) => {
     const i = cards.length - 1 - k;
     if (i > 0) {
-      c.style.transition = "transform .45s cubic-bezier(.2,.9,.25,1), filter .45s";
+      c.style.transition = "transform .35s cubic-bezier(.2,.9,.25,1), filter .35s";
       c.style.transform = tf(i - 1);
       c.style.filter = fl(i - 1);
     }
   });
-  el.style.transition = "transform .45s cubic-bezier(.4,0,.8,.6), opacity .45s ease-in";
+  el.style.transition = "transform .35s cubic-bezier(.4,0,.8,.6), opacity .35s ease-in";
   el.style.transform = `translate(${dir * (window.innerWidth + 200)}px, ${dir > 0 ? -30 : 30}px) rotate(${dir * 26}deg)`;
   el.style.opacity = "0";
-  setTimeout(() => { busy = false; decide(m, dir); }, 380);
+  setTimeout(() => { busy = false; decide(m, dir); }, 320);
 }
 
 function swipeButton(dir) {
@@ -370,6 +380,9 @@ function loadRuntime(id) {
     if (s) {
       if (d.runtime) s.runtime = d.runtime;
       if (d.genres) s.genres = d.genres;
+      if (!s.category || s.category === "Без категории") {
+        s.category = (d.genres && d.genres[0]) || "Без категории";
+      }
       save(); renderList();
     }
   }).catch(() => {});
@@ -428,11 +441,7 @@ function renderList() {
 
   const groups = {};
   items.forEach(m => {
-    let cat = "Без категории";
-    if (m.genres && m.genres.length) {
-      const animGenre = m.genres.find(g => g === "Мультфильмы" || g === "Аниме");
-      cat = animGenre || m.genres[0];
-    }
+    const cat = m.category || "Без категории";
     if (!groups[cat]) groups[cat] = [];
     groups[cat].push(m);
   });
@@ -484,18 +493,18 @@ function bindRowSwipe() {
       currentX = e.clientX - startX;
       const currentY = e.clientY - startY;
 
-      if (Math.abs(currentX) > 6 || Math.abs(currentY) > 6) {
+      if (Math.abs(currentX) > 4 || Math.abs(currentY) > 4) {
         moved = true;
       }
 
       if (!locked) {
-        if (Math.abs(currentY) > Math.abs(currentX)) {
+        if (Math.abs(currentY) > Math.abs(currentX) + 2) {
           isDragging = false;
           container.classList.remove("swiping");
           row.style.transform = "translateX(0)";
           return;
         }
-        if (Math.abs(currentX) > 10) {
+        if (Math.abs(currentX) > 6) {
           locked = true;
           container.classList.add("swiping");
         }
@@ -513,8 +522,8 @@ function bindRowSwipe() {
       }
       isDragging = false;
       
-      if (locked && currentX < -90) {
-        row.style.transition = "transform .4s ease-out, opacity .35s ease-out";
+      if (locked && currentX < -50) {
+        row.style.transition = "transform .25s ease-out, opacity .2s ease-out";
         row.style.transform = "translateX(-120%)";
         row.style.opacity = "0";
         burstDelete(row);
@@ -530,11 +539,11 @@ function bindRowSwipe() {
           state.liked = state.liked.filter(x => x.id !== id);
           save();
           renderAll();
-        }, 700); // Синхронизировано с длительностью CSS (0.7s)
+        }, 400);
       } else {
-        row.style.transition = "transform .4s var(--spring)";
+        row.style.transition = "transform .3s var(--spring)";
         row.style.transform = "translateX(0)";
-        setTimeout(() => container.classList.remove("swiping"), 400);
+        setTimeout(() => container.classList.remove("swiping"), 300);
         
         if (!moved) {
           const m = findMovie(id);
@@ -556,11 +565,38 @@ function findMovie(id) {
 
 function closeOverlay() {
   const o = $("#overlay");
+  const sheet = $("#sheet-element");
   if (o.hidden) return;
-  o.classList.remove("static");
-  o.classList.add("closing");
+
   sheetMovie = null;
-  setTimeout(() => { if (!sheetMovie) { o.hidden = true; o.innerHTML = ""; } o.classList.remove("closing"); }, RM ? 0 : 240);
+  o.classList.add("closing");
+
+  if (sheet) {
+    sheet.classList.add("dismissing");
+  }
+
+  setTimeout(() => {
+    if (!sheetMovie) {
+      o.hidden = true;
+      o.innerHTML = "";
+    }
+    o.classList.remove("closing");
+  }, 320);
+}
+
+function closeFiltersModal() {
+  const o = $("#filters-overlay");
+  const sheet = $("#filters-sheet-element");
+  if (o.hidden) return;
+
+  o.classList.add("closing");
+  if (sheet) sheet.classList.add("dismissing");
+
+  setTimeout(() => {
+    o.hidden = true;
+    o.classList.remove("closing");
+    if (sheet) sheet.classList.remove("dismissing");
+  }, 320);
 }
 
 function mediaHtml(m) {
@@ -575,18 +611,19 @@ function playerHtml(key) {
 }
 
 function actionsHtml(m) {
-  return `${watchButton(m, "primary")}<button class="btn" data-toggle>${isLiked(m.id) ? "Убрать из вечера" : "В мой вечер"}</button>`;
+  const liked = isLiked(m.id);
+  const text = liked ? "Убрать из вечера" : "В мой вечер";
+  return `${watchButton(m, "primary")}<button class="btn" data-toggle="${m.id}"><span class="btn-label fade-in">${text}</span></button>`;
 }
 
 function openSheet(m, focusSrc) {
   hideToast();
   const o = $("#overlay");
-  const wasOpen = !o.hidden && !o.classList.contains("closing");
   sheetMovie = Object.assign({}, m);
   const id = m.id;
   const url = state.urls[id] || "";
+
   o.classList.remove("closing");
-  o.classList.toggle("static", wasOpen);
 
   o.innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(m.title)}" id="sheet-element">
     <div class="sheet-media" id="sheet-media">${mediaHtml(m)}</div>
@@ -636,6 +673,7 @@ function openSheet(m, focusSrc) {
 
 function bindSheetSwipeToClose() {
   const sheet = $("#sheet-element");
+  const overlay = $("#overlay");
   if (!sheet) return;
   let startY = 0, currentY = 0, isDragging = false;
 
@@ -643,27 +681,76 @@ function bindSheetSwipeToClose() {
     if (sheet.scrollTop <= 0) {
       startY = e.clientY;
       isDragging = true;
+      sheet.style.transition = "none";
+      sheet.setPointerCapture(e.pointerId);
     }
   });
 
   sheet.addEventListener("pointermove", e => {
     if (!isDragging) return;
-    currentY = e.clientY - startY;
-    if (currentY > 0) sheet.style.transform = `translateY(${currentY}px)`;
+    currentY = Math.max(0, e.clientY - startY);
+    if (currentY > 0) {
+      sheet.style.transform = `translateY(${currentY}px)`;
+      overlay.style.opacity = Math.max(0.2, 1 - currentY / 350);
+    }
   });
 
   const endDrag = () => {
     if (!isDragging) return;
     isDragging = false;
-    sheet.style.transition = "transform .3s var(--spring)";
-    if (currentY > 100) {
-      sheet.style.transform = "translateY(100%)";
-      setTimeout(closeOverlay, 250);
+    sheet.style.transition = "transform .35s var(--spring)";
+    overlay.style.transition = "opacity .35s ease";
+
+    if (currentY > 90) {
+      closeOverlay();
     } else {
-      sheet.style.transform = "translateY(0)";
+      sheet.style.transform = "translateY(0%)";
+      overlay.style.opacity = "1";
     }
     currentY = 0;
-    setTimeout(() => sheet.style.transition = "", 300);
+  };
+
+  sheet.addEventListener("pointerup", endDrag);
+  sheet.addEventListener("pointercancel", endDrag);
+}
+
+function bindFilterSheetSwipeToClose() {
+  const sheet = $("#filters-sheet-element");
+  const overlay = $("#filters-overlay");
+  if (!sheet) return;
+  let startY = 0, currentY = 0, isDragging = false;
+
+  sheet.addEventListener("pointerdown", e => {
+    if (sheet.scrollTop <= 0) {
+      startY = e.clientY;
+      isDragging = true;
+      sheet.style.transition = "none";
+      sheet.setPointerCapture(e.pointerId);
+    }
+  });
+
+  sheet.addEventListener("pointermove", e => {
+    if (!isDragging) return;
+    currentY = Math.max(0, e.clientY - startY);
+    if (currentY > 0) {
+      sheet.style.transform = `translateY(${currentY}px)`;
+      overlay.style.opacity = Math.max(0.2, 1 - currentY / 350);
+    }
+  });
+
+  const endDrag = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    sheet.style.transition = "transform .35s var(--spring)";
+    overlay.style.transition = "opacity .35s ease";
+
+    if (currentY > 90) {
+      closeFiltersModal();
+    } else {
+      sheet.style.transform = "translateY(0%)";
+      overlay.style.opacity = "1";
+    }
+    currentY = 0;
   };
 
   sheet.addEventListener("pointerup", endDrag);
@@ -703,17 +790,51 @@ function saveSrc() {
   $("#src-note").textContent = v ? "Ссылка сохранена. Кнопка «Смотреть» откроет её в новой вкладке." : "Ссылка удалена.";
 }
 
+// Плавная смена надписи + анимация обводки (stroke) и частиц с фейдом
 function toggleLike(m) {
-  if (isLiked(m.id)) {
-    state.liked = state.liked.filter(x => x.id !== m.id);
-  } else {
-    state.liked.push(snap(m));
-    state.passed = state.passed.filter(x => x !== m.id);
-    deck = deck.filter(d => d.id !== m.id);
-    if (!m.runtime) loadRuntime(m.id);
+  if (!m) return;
+  const liked = isLiked(m.id);
+  const btn = document.querySelector("#sheet-actions [data-toggle]");
+  const label = btn ? btn.querySelector(".btn-label") : null;
+  
+  if (btn) {
+    const strokeClass = liked ? "pop-stroke-red" : "pop-stroke-green";
+    btn.classList.remove("pop-stroke-red", "pop-stroke-green");
+    void btn.offsetWidth;
+    btn.classList.add(strokeClass);
+
+    burst(btn, liked ? "var(--nope)" : "var(--user-accent)", 16);
+
+    if (label) {
+      label.classList.remove("fade-in");
+      label.classList.add("fade-out");
+    }
   }
-  save(); renderAll();
-  $("#sheet-actions").innerHTML = actionsHtml(m);
+
+  setTimeout(() => {
+    if (liked) {
+      state.liked = state.liked.filter(x => x.id !== m.id);
+    } else {
+      state.liked.push(snap(m));
+      state.passed = state.passed.filter(x => x !== m.id);
+      deck = deck.filter(d => d.id !== m.id);
+      if (!m.runtime) loadRuntime(m.id);
+    }
+    save(); 
+    renderAll();
+    
+    if (sheetMovie && sheetMovie.id === m.id) {
+      const isNowLiked = isLiked(m.id);
+      const text = isNowLiked ? "Убрать из вечера" : "В мой вечер";
+      if (label) {
+        label.textContent = text;
+        label.classList.remove("fade-out");
+        label.classList.add("fade-in");
+      } else {
+        $("#sheet-actions").innerHTML = actionsHtml(sheetMovie);
+      }
+    }
+  }, 180);
 }
 
 function openFiltersModal() {
@@ -723,7 +844,11 @@ function openFiltersModal() {
       <span>${esc(g.name)}</span>
     </label>
   `).join("");
-  $("#filters-overlay").hidden = false;
+  
+  const o = $("#filters-overlay");
+  o.classList.remove("closing");
+  o.hidden = false;
+  bindFilterSheetSwipeToClose();
 }
 
 function applyFiltersModal() {
@@ -731,7 +856,10 @@ function applyFiltersModal() {
   state.multiGenres = checked;
   state.genre = 0;
   save();
-  $("#filters-overlay").hidden = true;
+  closeFiltersModal();
+  setTimeout(() => {
+    $("#filters-overlay").hidden = true;
+  }, 320);
   deck = []; history = []; paging = newPaging();
   refill("filter");
 }
@@ -784,17 +912,25 @@ document.addEventListener("click", e => {
   if (t.dataset.open) { const m = findMovie(+t.dataset.open); return m && openSheet(m); }
   if (t.dataset.relatedId) { const m = findMovie(+t.dataset.relatedId); if (m) openSheet(m); else TMDB.details(+t.dataset.relatedId).then(openSheet); return; }
   if (t.dataset.addSrc) { const m = findMovie(+t.dataset.addSrc); return m && openSheet(m, true); }
-  if ("toggle" in t.dataset) return sheetMovie && toggleLike(sheetMovie);
-  if ("close" in t.dataset) return closeOverlay();
+  if ("toggle" in t.dataset) {
+    const id = +t.dataset.toggle;
+    const m = findMovie(id) || sheetMovie;
+    return toggleLike(m);
+  }
+  if ("close" in t.dataset) {
+    if (t.closest("#filters-overlay")) closeFiltersModal();
+    else closeOverlay();
+    return;
+  }
   if (t.classList.contains("backdrop") && e.target === t) {
-    if (t.id === "filters-overlay") t.hidden = true;
+    if (t.id === "filters-overlay") closeFiltersModal();
     else closeOverlay();
   }
 });
 
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT") { if (e.key === "Enter") saveSrc(); return; }
-  if (e.key === "Escape") { closeOverlay(); $("#filters-overlay").hidden = true; }
+  if (e.key === "Escape") { closeOverlay(); closeFiltersModal(); }
   if ($("#overlay").hidden && $("#filters-overlay").hidden && !$("#view-swipe").hidden) {
     if (e.key === "ArrowRight") swipeButton(1);
     if (e.key === "ArrowLeft") swipeButton(-1);
