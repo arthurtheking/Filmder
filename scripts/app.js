@@ -19,67 +19,62 @@ let history = [];
 let busy = false;
 let sheetMovie = null;
 
-// --- ЛОГИКА ТЕМЫ (Оптимизированная мобильная волна) ---
 const THEME_KEY = "filmder-theme";
 const themeCheckbox = document.getElementById("theme-switch-input");
 
 function applyTheme(isLight, animate = false) {
   if (!animate) {
-    if (isLight) document.documentElement.classList.add("light");
-    else document.documentElement.classList.remove("light");
+    document.documentElement.classList.toggle("light", isLight);
     if (themeCheckbox) themeCheckbox.checked = isLight;
     return;
   }
 
-  const wave = document.createElement("div");
-  wave.className = "theme-wave";
-  
-  const newBgColor = isLight ? "#EAECEC" : "#0a0a0d";
-  wave.style.background = newBgColor;
-  
-  document.body.appendChild(wave);
+  const switchEl = document.querySelector(".ios-switch");
+  const rect = switchEl ? switchEl.getBoundingClientRect() : { left: window.innerWidth - 60, top: 30 };
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  const maxRadius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
 
-  // Компактный и плавный расходящийся круг для мобильного экрана
-  const anim = wave.animate([
-    { transform: "translate(-50%, -50%) scale(0)", opacity: 0.95 },
-    { transform: "translate(-50%, -50%) scale(42)", opacity: 1 }
+  const overlay = document.createElement("div");
+  overlay.className = "theme-transition-overlay";
+  const newBgColor = isLight ? "#EAECEC" : "#0a0a0d";
+  overlay.style.background = newBgColor;
+  overlay.style.clipPath = `circle(0px at ${x}px ${y}px)`;
+  document.body.appendChild(overlay);
+
+  const anim = overlay.animate([
+    { clipPath: `circle(0px at ${x}px ${y}px)` },
+    { clipPath: `circle(${maxRadius}px at ${x}px ${y}px)` }
   ], {
-    duration: 480,
-    easing: "cubic-bezier(0.2, 0.9, 0.3, 1)",
+    duration: 900, // Увеличено для максимальной плавности
+    easing: "cubic-bezier(0.22, 1, 0.36, 1)",
     fill: "forwards"
   });
 
   anim.onfinish = () => {
-    if (isLight) document.documentElement.classList.add("light");
-    else document.documentElement.classList.remove("light");
+    document.documentElement.classList.toggle("light", isLight);
+    if (themeCheckbox) themeCheckbox.checked = isLight;
+    
+    const appEl = document.querySelector(".app");
+    if (appEl) {
+      appEl.classList.remove("theme-reveal");
+      void appEl.offsetWidth;
+      appEl.classList.add("theme-reveal");
+    }
 
-    setTimeout(() => {
-      const fadeOut = wave.animate([
-        { opacity: 1 },
-        { opacity: 0 }
-      ], {
-        duration: 320,
-        easing: "ease-out",
-        fill: "forwards"
-      });
-
-      const appEl = document.querySelector(".app");
-      if (appEl) {
-        appEl.classList.remove("theme-reveal");
-        void appEl.offsetWidth;
-        appEl.classList.add("theme-reveal");
-      }
-
-      fadeOut.onfinish = () => wave.remove();
-    }, 60);
+    overlay.animate([
+      { opacity: 1 },
+      { opacity: 0 }
+    ], {
+      duration: 400,
+      easing: "ease-out",
+      fill: "forwards"
+    }).onfinish = () => overlay.remove();
   };
 }
 
-// Инициализация темы при загрузке без анимации
-const savedTheme = localStorage.getItem(THEME_KEY);
-applyTheme(savedTheme === "light", false);
+applyTheme(localStorage.getItem(THEME_KEY) === "light", false);
 
-// Обработчик переключения тумблера
 if (themeCheckbox) {
   themeCheckbox.addEventListener("change", () => {
     const isLight = themeCheckbox.checked;
@@ -107,8 +102,7 @@ function anim(el, keyframes, options) {
 const bump = el => anim(el, [{ transform: "scale(1)" }, { transform: "scale(1.35)" }, { transform: "scale(1)" }], { duration: 380 });
 
 function posterHtml(path, size, alt) {
-  const imgSize = size === "original" ? "original" : "w500";
-  const src = TMDB.img(path, imgSize);
+  const src = TMDB.img(path, size === "original" ? "original" : "w500");
   return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false" loading="lazy" decoding="async">` : ""}</div>`;
 }
 
@@ -164,14 +158,14 @@ async function fillDeck(min = 8) {
       p.total = Math.min(data.totalPages || 40, 40);
       
       for (const m of data.items) {
-        if (m.poster && !isSeen(m.id) && !deck.some(d => d.id === m.id)) deck.push(m);
+        if (m.poster && !isSeen(m.id) && !deck.some(d => d.id === m.id)) {
+          deck.push(m);
+          if (m.poster) new Image().src = TMDB.img(m.poster, "original");
+        }
       }
       
-      if (deck.length < min && p.page < p.total) {
-        p.page++;
-      } else {
-        break;
-      }
+      if (deck.length < min && p.page < p.total) p.page++;
+      else break;
     }
   } catch (e) {
     if (p === paging) p.error = e.message;
@@ -447,20 +441,21 @@ function renderList() {
   let idx = 1;
 
   for (const [cat, movies] of Object.entries(groups)) {
-    html += `<div class="list-category-title">${esc(cat)}</div>`;
+    html += `<div class="category-section" data-category="${esc(cat)}">
+      <div class="list-category-title">${esc(cat)}</div>`;
     for (const m of movies) {
       html += `<div class="row-container" data-id="${m.id}">
         <div class="row-delete-bg">Удалить</div>
-        <div class="row" style="--i:${idx++}" data-row="${m.id}">
-          <div class="thumb" data-open="${m.id}">${posterHtml(m.poster, "list", m.title)}</div>
+        <div class="row" style="--i:${idx++}" data-row-id="${m.id}">
+          <div class="thumb">${posterHtml(m.poster, "list", m.title)}</div>
           <div class="row-main">
-            <button class="row-title" data-open="${m.id}">${esc(m.title)}</button>
+            <div class="row-title">${esc(m.title)}</div>
             <div class="row-meta">${[m.year, dur(m.runtime), `★ ${m.rating.toFixed(1)}`].filter(Boolean).join(" · ")}</div>
-            <div class="row-actions">${watchButton(m, "primary")}</div>
           </div>
         </div>
       </div>`;
     }
+    html += `</div>`;
   }
 
   list.innerHTML = html;
@@ -469,16 +464,17 @@ function renderList() {
 
 function bindRowSwipe() {
   document.querySelectorAll(".row").forEach(row => {
-    let startX = 0, startY = 0, currentX = 0, isDragging = false, locked = false;
+    let startX = 0, startY = 0, currentX = 0, isDragging = false, locked = false, moved = false;
     const container = row.closest(".row-container");
+    const section = row.closest(".category-section");
     const id = +container.dataset.id;
 
     row.addEventListener("pointerdown", e => {
-      if (e.target.closest("button, a, .thumb")) return;
       startX = e.clientX;
       startY = e.clientY;
       isDragging = true;
       locked = false;
+      moved = false;
       row.style.transition = "none";
       row.setPointerCapture(e.pointerId);
     });
@@ -488,13 +484,21 @@ function bindRowSwipe() {
       currentX = e.clientX - startX;
       const currentY = e.clientY - startY;
 
+      if (Math.abs(currentX) > 6 || Math.abs(currentY) > 6) {
+        moved = true;
+      }
+
       if (!locked) {
         if (Math.abs(currentY) > Math.abs(currentX)) {
           isDragging = false;
+          container.classList.remove("swiping");
           row.style.transform = "translateX(0)";
           return;
         }
-        if (Math.abs(currentX) > 10) locked = true;
+        if (Math.abs(currentX) > 10) {
+          locked = true;
+          container.classList.add("swiping");
+        }
       }
 
       if (locked && currentX < 0) {
@@ -503,25 +507,41 @@ function bindRowSwipe() {
     });
 
     const finishDrag = () => {
-      if (!isDragging && !locked) return;
+      if (!isDragging && !locked) {
+        container.classList.remove("swiping");
+        return;
+      }
       isDragging = false;
-      locked = false;
       
-      if (currentX < -90) {
-        row.style.transition = "transform .25s ease-out, opacity .25s ease-out";
+      if (locked && currentX < -90) {
+        row.style.transition = "transform .4s ease-out, opacity .35s ease-out";
         row.style.transform = "translateX(-120%)";
         row.style.opacity = "0";
         burstDelete(row);
+
         container.classList.add("removing");
+        
+        const remainingRows = section ? section.querySelectorAll(".row-container:not(.removing)").length : 1;
+        if (remainingRows <= 0 && section) {
+          section.classList.add("removing");
+        }
+        
         setTimeout(() => {
           state.liked = state.liked.filter(x => x.id !== id);
           save();
           renderAll();
-        }, 280);
+        }, 700); // Синхронизировано с длительностью CSS (0.7s)
       } else {
-        row.style.transition = "transform .3s var(--spring)";
+        row.style.transition = "transform .4s var(--spring)";
         row.style.transform = "translateX(0)";
+        setTimeout(() => container.classList.remove("swiping"), 400);
+        
+        if (!moved) {
+          const m = findMovie(id);
+          if (m) openSheet(m);
+        }
       }
+      locked = false;
       currentX = 0;
     };
 
@@ -629,9 +649,7 @@ function bindSheetSwipeToClose() {
   sheet.addEventListener("pointermove", e => {
     if (!isDragging) return;
     currentY = e.clientY - startY;
-    if (currentY > 0) {
-      sheet.style.transform = `translateY(${currentY}px)`;
-    }
+    if (currentY > 0) sheet.style.transform = `translateY(${currentY}px)`;
   });
 
   const endDrag = () => {
@@ -699,8 +717,7 @@ function toggleLike(m) {
 }
 
 function openFiltersModal() {
-  const grid = $("#filter-grid");
-  grid.innerHTML = genres.map(g => `
+  $("#filter-grid").innerHTML = genres.map(g => `
     <label class="filter-item">
       <input type="checkbox" value="${g.id}" ${state.multiGenres.includes(g.id) ? "checked" : ""}>
       <span>${esc(g.name)}</span>
@@ -715,18 +732,6 @@ function applyFiltersModal() {
   state.genre = 0;
   save();
   $("#filters-overlay").hidden = true;
-  deck = []; history = []; paging = newPaging();
-  refill("filter");
-}
-
-function selectGenre(id) {
-  if (state.genre === id && state.multiGenres.length === 0) {
-    state.genre = 0;
-  } else {
-    state.genre = id;
-    state.multiGenres = [];
-  }
-  save();
   deck = []; history = []; paging = newPaging();
   refill("filter");
 }

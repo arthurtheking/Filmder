@@ -28,9 +28,8 @@ const TMDB = (() => {
     return data;
   }
 
-  function genreName(id, lang) {
-    if (id === 16) return "Мультфильмы";
-    return genreMap[id];
+  function genreName(id) {
+    return id === 16 ? "Мультфильмы" : genreMap[id];
   }
 
   async function genres() {
@@ -41,29 +40,28 @@ const TMDB = (() => {
     return list.sort((a, b) => a.name.localeCompare(b.name, "ru"));
   }
 
-  async function discover(genreFilter, page) {
+  async function discover(genreFilter, page = 1) {
     const maxPages = CONFIG.MAX_PAGES || 40;
-    const targetPage = page || 1;
 
     const params = {
       sort_by: "popularity.desc",
       "vote_count.gte": CONFIG.MIN_VOTES,
       include_adult: "false",
-      page: targetPage,
+      page,
     };
 
     if (genreFilter) {
       if (Array.isArray(genreFilter)) {
         const hasAnime = genreFilter.includes("anime");
-        const hasCartoons = genreFilter.includes(16) || genreFilter.includes("16");
-        const numericGenres = genreFilter.filter(id => id !== "anime" && id !== 16 && id !== "16");
+        const hasCartoons = genreFilter.some(g => String(g) === "16");
+        const numericGenres = genreFilter.filter(id => id !== "anime" && String(id) !== "16");
         
-        let list = [...numericGenres];
+        const list = [...numericGenres];
         if (hasCartoons || hasAnime) list.push(16);
         
         if (list.length) params.with_genres = list.join("|");
         if (hasAnime) params.with_original_language = "ja";
-      } else if (genreFilter === "anime" || genreFilter === "16" || genreFilter === 16) {
+      } else if (genreFilter === "anime" || String(genreFilter) === "16") {
         params.with_genres = "16";
         if (genreFilter === "anime") params.with_original_language = "ja";
       } else {
@@ -94,14 +92,14 @@ const TMDB = (() => {
       rating: d.vote_average || 0,
       lang,
       isAnime,
-      genres: (d.genres || []).map(g => g.id === 16 ? (isAnime ? "Аниме" : "Мультфильмы") : (genreName(g.id, lang) || cap(g.name))),
+      genres: (d.genres || []).map(g => g.id === 16 ? (isAnime ? "Аниме" : "Мультфильмы") : (genreName(g.id) || cap(g.name))),
       overview: d.overview || "",
       poster: d.poster_path,
       backdrop: d.backdrop_path,
       director: director ? director.name : "",
       cast: (d.credits?.cast || []).slice(0, 4).map(p => p.name),
       trailerKey: pickTrailer(d.videos?.results || []),
-      related: pickRelated(d, id, isAnim, isAnime),
+      related: pickRelated(d, id),
     };
   }
 
@@ -112,15 +110,14 @@ const TMDB = (() => {
     return best && score(best) >= 0 ? best.key : null;
   }
 
-  function pickRelated(d, selfId, isAnim, isAnime) {
+  function pickRelated(d, selfId) {
     const all = [...(d.recommendations?.results || []), ...(d.similar?.results || [])];
     const seen = new Set([selfId]);
     const out = [];
     for (const r of all) {
       if (!r.poster_path || seen.has(r.id)) continue;
       seen.add(r.id);
-      const m = normalize(r);
-      out.push(m);
+      out.push(normalize(r));
       if (out.length >= 8) break;
     }
     return out;
@@ -137,7 +134,7 @@ const TMDB = (() => {
       rating: r.vote_average || 0,
       lang: r.original_language,
       isAnime,
-      genres: ids.map(id => id === 16 ? (isAnime ? "Аниме" : "Мультфильмы") : genreName(id, r.original_language)).filter(Boolean),
+      genres: ids.map(id => id === 16 ? (isAnime ? "Аниме" : "Мультфильмы") : genreName(id)).filter(Boolean),
       overview: r.overview || "",
       poster: r.poster_path,
       backdrop: r.backdrop_path,
