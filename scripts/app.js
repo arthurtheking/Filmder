@@ -12,10 +12,14 @@ const isLiked = id => state.liked.some(m => m.id === id);
 const isSeen = id => isLiked(id) || state.passed.includes(id);
 
 const snap = m => {
-  let cat = m.category || "Без категории";
-  if (!m.category && m.genres && m.genres.length) {
-    const animGenre = m.genres.find(g => g === "Мультфильмы" || g === "Аниме");
-    cat = animGenre || m.genres[0];
+  let cat = m.category;
+  if (!cat) {
+    if (m.genres && m.genres.length > 0) {
+      const animGenre = m.genres.find(g => g === "Мультфильмы" || g === "Аниме");
+      cat = animGenre || m.genres[0];
+    } else {
+      cat = "Другое";
+    }
   }
   return { id: m.id, title: m.title, orig: m.orig, year: m.year, rating: m.rating, poster: m.poster, runtime: m.runtime || 0, genres: m.genres || [], category: cat };
 };
@@ -41,7 +45,8 @@ function applyTheme(isLight, animate = false) {
   const rect = switchEl ? switchEl.getBoundingClientRect() : { left: window.innerWidth - 60, top: 30 };
   const x = rect.left + rect.width / 2;
   const y = rect.top + rect.height / 2;
-  const maxRadius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  // Учитываем запас с учётом расширенного инсета (-50px) для полного покрытия сейф-зоны
+  const maxRadius = Math.hypot(Math.max(x + 50, window.innerWidth - x + 50), Math.max(y + 50, window.innerHeight - y + 50));
 
   const overlay = document.createElement("div");
   overlay.className = "theme-transition-overlay";
@@ -114,7 +119,6 @@ function posterHtml(path, size, alt) {
   return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false" loading="lazy" decoding="async">` : ""}</div>`;
 }
 
-// Вылет частиц с плавным фейдом
 function burst(btn, color, count) {
   if (RM) return;
   const r = btn.getBoundingClientRect();
@@ -380,8 +384,9 @@ function loadRuntime(id) {
     if (s) {
       if (d.runtime) s.runtime = d.runtime;
       if (d.genres) s.genres = d.genres;
-      if (!s.category || s.category === "Без категории") {
-        s.category = (d.genres && d.genres[0]) || "Без категории";
+      if (!s.category || s.category === "Другое") {
+        const animGenre = d.genres && d.genres.find(g => g === "Мультфильмы" || g === "Аниме");
+        s.category = animGenre || (d.genres && d.genres[0]) || "Другое";
       }
       save(); renderList();
     }
@@ -426,10 +431,13 @@ function watchButton(m, cls) {
   return `<button class="btn ${cls}" data-add-src="${m.id}">${ICON_PLAY}Смотреть</button>`;
 }
 
+let persistentCategoryOrder = [];
+
 function renderList() {
   const list = $("#list");
   const items = state.liked;
   if (!items.length) {
+    persistentCategoryOrder = [];
     list.innerHTML = `<div class="empty" style="position:static;flex:1">
       <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.6 4.5 6.4 4.5c2.2 0 3.6 1.2 4.6 2.7h2c1-1.5 2.4-2.7 4.6-2.7 3.8 0 5.5 3.9 4 7.3C19.5 16.4 12 21 12 21z"/></svg>
       <h2>Вечер пока пуст</h2><p>Свайпайте вправо фильмы, которые хочется посмотреть. Они появятся здесь.</p></div>`;
@@ -441,15 +449,31 @@ function renderList() {
 
   const groups = {};
   items.forEach(m => {
-    const cat = m.category || "Без категории";
+    let cat = m.category;
+    if (!cat) {
+      const animGenre = m.genres && m.genres.find(g => g === "Мультфильмы" || g === "Аниме");
+      cat = animGenre || (m.genres && m.genres[0]) || "Другое";
+      m.category = cat;
+    }
     if (!groups[cat]) groups[cat] = [];
     groups[cat].push(m);
+  });
+
+  const currentCategories = Object.keys(groups);
+  persistentCategoryOrder = persistentCategoryOrder.filter(cat => currentCategories.includes(cat));
+  currentCategories.forEach(cat => {
+    if (!persistentCategoryOrder.includes(cat)) {
+      persistentCategoryOrder.push(cat);
+    }
   });
 
   let html = `<div class="summary" style="--i:0"><b>${items.length} ${plural(items.length)}</b><span>${totalText}</span></div>`;
   let idx = 1;
 
-  for (const [cat, movies] of Object.entries(groups)) {
+  for (const cat of persistentCategoryOrder) {
+    const movies = groups[cat];
+    if (!movies || !movies.length) continue;
+
     html += `<div class="category-section" data-category="${esc(cat)}">
       <div class="list-category-title">${esc(cat)}</div>`;
     for (const m of movies) {
@@ -790,7 +814,6 @@ function saveSrc() {
   $("#src-note").textContent = v ? "Ссылка сохранена. Кнопка «Смотреть» откроет её в новой вкладке." : "Ссылка удалена.";
 }
 
-// Плавная смена надписи + анимация обводки (stroke) и частиц с фейдом
 function toggleLike(m) {
   if (!m) return;
   const liked = isLiked(m.id);

@@ -199,13 +199,12 @@ img { max-width: 100%; }
 .row-meta { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .btn { 
-  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); font-weight: 500; font-size: 14px; color: var(--fg); transition: transform .25s var(--spring), background .25s, color .25s, border-color .25s; text-decoration: none; overflow: hidden;
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--muted); background: var(--surface-2); font-weight: 500; font-size: 14px; color: var(--fg); transition: transform .25s var(--spring), background .25s, color .25s, border-color .25s; text-decoration: none; overflow: hidden;
 }
 .btn:active { transform: scale(.94); }
 .btn.primary { background: var(--user-accent); color: #fff; border-color: var(--user-accent); }
 .btn.ghost { background: transparent; color: var(--muted); }
 
-/* Плавный заголовок внутри кнопки toggle */
 .btn-label {
   display: inline-block;
   transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -220,24 +219,23 @@ img { max-width: 100%; }
   transform: translateY(0) scale(1);
 }
 
-/* Эффект пульсирующей обводки (stroke effect) */
 .btn.pop-stroke-green {
-  animation: strokePulseGreen 0.5s var(--spring);
+  animation: thinStrokeGreen 0.45s var(--spring);
 }
 .btn.pop-stroke-red {
-  animation: strokePulseRed 0.5s var(--spring);
+  animation: thinStrokeRed 0.45s var(--spring);
 }
 
-@keyframes strokePulseGreen {
-  0% { box-shadow: 0 0 0 0px var(--user-accent); transform: scale(1); }
-  50% { box-shadow: 0 0 0 8px rgba(44, 181, 105, 0.35); transform: scale(1.05); }
-  100% { box-shadow: 0 0 0 0px rgba(44, 181, 105, 0); transform: scale(1); }
+@keyframes thinStrokeGreen {
+  0% { border-color: var(--muted); transform: scale(1); }
+  40% { border-color: var(--user-accent); transform: scale(1.04); }
+  100% { border-color: var(--muted); transform: scale(1); }
 }
 
-@keyframes strokePulseRed {
-  0% { box-shadow: 0 0 0 0px var(--nope); transform: scale(1); }
-  50% { box-shadow: 0 0 0 8px rgba(255, 107, 129, 0.35); transform: scale(1.05); }
-  100% { box-shadow: 0 0 0 0px rgba(255, 107, 129, 0); transform: scale(1); }
+@keyframes thinStrokeRed {
+  0% { border-color: var(--muted); transform: scale(1); }
+  40% { border-color: var(--nope); transform: scale(1.04); }
+  100% { border-color: var(--muted); transform: scale(1); }
 }
 
 .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .62); backdrop-filter: blur(6px); z-index: 20; display: flex; align-items: flex-end; justify-content: center; transition: opacity .3s ease; }
@@ -330,7 +328,7 @@ img { max-width: 100%; }
 
 .theme-transition-overlay {
   position: fixed;
-  inset: 0;
+  inset: -50px; /* С запасом перекрывает любые безопасные зоны и вырезы */
   pointer-events: none;
   z-index: 9999;
   will-change: clip-path;
