@@ -19,7 +19,7 @@ let history = [];
 let busy = false;
 let sheetMovie = null;
 
-// --- ЛОГИКА ТЕМЫ (Круговой наплыв из тумблера) ---
+// --- ЛОГИКА ТЕМЫ (Оптимизированная мобильная волна) ---
 const THEME_KEY = "filmder-theme";
 const themeCheckbox = document.getElementById("theme-switch-input");
 
@@ -39,34 +39,30 @@ function applyTheme(isLight, animate = false) {
   
   document.body.appendChild(wave);
 
-  // Плавное увеличение круга из точки тумблера
+  // Компактный и плавный расходящийся круг для мобильного экрана
   const anim = wave.animate([
-    { transform: "translate(-50%, -50%) scale(0)", opacity: 1 },
-    { transform: "translate(-50%, -50%) scale(65)", opacity: 1 }
+    { transform: "translate(-50%, -50%) scale(0)", opacity: 0.95 },
+    { transform: "translate(-50%, -50%) scale(42)", opacity: 1 }
   ], {
-    duration: 550,
-    easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+    duration: 480,
+    easing: "cubic-bezier(0.2, 0.9, 0.3, 1)",
     fill: "forwards"
   });
 
   anim.onfinish = () => {
-    // 1. Когда экран полностью залит, меняем тему
     if (isLight) document.documentElement.classList.add("light");
     else document.documentElement.classList.remove("light");
 
-    // 2. Держим 0.1 секунды заполненным
     setTimeout(() => {
-      // 3. Фейдим волну
       const fadeOut = wave.animate([
         { opacity: 1 },
         { opacity: 0 }
       ], {
-        duration: 400,
+        duration: 320,
         easing: "ease-out",
         fill: "forwards"
       });
 
-      // 4. Проявляем интерфейс
       const appEl = document.querySelector(".app");
       if (appEl) {
         appEl.classList.remove("theme-reveal");
@@ -75,7 +71,7 @@ function applyTheme(isLight, animate = false) {
       }
 
       fadeOut.onfinish = () => wave.remove();
-    }, 100);
+    }, 60);
   };
 }
 
