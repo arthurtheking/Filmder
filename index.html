@@ -2,9 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Filmder</title>
   <meta name="theme-color" content="#0a0a0d">
+  <meta name="color-scheme" content="dark light">
 
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -14,8 +15,10 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
 
-  <link rel="preconnect" href="https://image.tmdb.org">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500&family=Onest:wght@400;500;600&display=swap">
+  <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;700&family=Onest:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="styles/style.css">
 </head>
 <body>
@@ -30,12 +33,11 @@
       <button class="filter-btn" id="btn-open-filters" aria-label="Фильтры жанров">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
         <span>Фильтры</span>
+        <i class="filter-count" id="filter-count" hidden>0</i>
       </button>
     </header>
 
-    <!-- Экран свайпа -->
     <section class="view" id="view-swipe">
-      <div class="chips" id="chips" role="group" aria-label="Жанры"></div>
       <div class="stage" id="stage"></div>
       <div class="actions">
         <button class="round small undo" id="btn-undo" aria-label="Вернуть предыдущий фильм">
@@ -50,7 +52,6 @@
       </div>
     </section>
 
-    <!-- Экран «Мой вечер» -->
     <section class="view" id="view-list" hidden>
       <div class="list-wrap" id="list"></div>
     </section>
@@ -62,30 +63,31 @@
     </nav>
   </div>
 
-  <!-- Выпадающее меню фильтров (мультивыбор) -->
+  <!-- Фильтры жанров -->
   <div class="backdrop" id="filters-overlay" hidden>
-    <div class="sheet filter-sheet">
-      <div class="sheet-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <div class="sheet filter-sheet" id="filters-sheet-element" role="dialog" aria-modal="true" aria-label="Выбор жанров">
+      <div class="grabber"></div>
+      <div class="sheet-head">
         <h2>Выбор жанров</h2>
-        <button class="btn ghost" id="btn-reset-filters" style="padding:4px 8px; font-size:12px;">Сбросить</button>
+        <button class="btn ghost small" id="btn-reset-filters">Сбросить</button>
       </div>
-      <p style="color:var(--muted); font-size:13px; margin-bottom:14px;">Выберите один или несколько жанров для подборки фильмов:</p>
+      <p class="hint-text">Выберите один или несколько жанров:</p>
       <div class="filter-grid" id="filter-grid"></div>
-      <div style="margin-top:20px; display:flex; gap:8px;">
-        <button class="btn primary" id="btn-apply-filters" style="flex:1;">Применить</button>
+      <div class="sheet-foot">
+        <button class="btn primary" id="btn-apply-filters">Применить</button>
       </div>
     </div>
   </div>
 
-  <!-- Интерактивный туториал -->
+  <!-- Туториал -->
   <div class="tutorial-overlay" id="tutorial" hidden>
     <div class="tutorial-card" id="tutorial-card">
       <div class="tutorial-step-indicator" id="tutorial-step-counter">Шаг 1 из 4</div>
       <h3 id="tutorial-title">Добро пожаловать в Filmder!</h3>
-      <p id="tutorial-text">Давайте быстро покажем, как здесь всё устроено, чтобы вы могли легко находить кино на вечер.</p>
-      <div style="display:flex; gap:8px; margin-top:16px;">
-        <button class="btn ghost" id="tutorial-skip" style="flex:1;">Пропустить</button>
-        <button class="btn primary" id="tutorial-next" style="flex:1;">Далее</button>
+      <p id="tutorial-text"></p>
+      <div class="tutorial-actions">
+        <button class="btn ghost" id="tutorial-skip">Пропустить</button>
+        <button class="btn primary" id="tutorial-next">Далее</button>
       </div>
     </div>
   </div>
@@ -105,6 +107,8 @@
   <div class="splash" id="splash" aria-hidden="true"><div class="mark" id="mark"><span class="word" id="word">filmder</span><i class="sdot" id="sdot"></i></div></div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="backdrop" id="overlay" hidden></div>
+
+  <noscript><p style="padding:24px;color:#fff">Для работы Filmder нужен JavaScript.</p></noscript>
 
   <script src="scripts/config.js"></script>
   <script src="scripts/tmdb.js"></script>
