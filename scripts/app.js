@@ -39,6 +39,7 @@ function plural(n) {
   return a === 1 && b !== 11 ? "фильм" : a >= 2 && a <= 4 && (b < 10 || b >= 20) ? "фильма" : "фильмов";
 }
 const ICON_PLAY = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>`;
+const ICON_CLOSE = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>`;
 const youtubeSearch = m => "https://www.youtube.com/results?search_query=" + encodeURIComponent(`${m.title} ${m.year} официальный трейлер`);
 const validUrl = u => /^https?:\/\/\S+$/i.test(u);
 
@@ -97,10 +98,34 @@ function newPaging() { return { page: 1, total: 1, loading: false, error: null }
 const themeInput = $("#theme-switch-input");
 const themeMeta = document.querySelector('meta[name="theme-color"]');
 
-function paintTheme(light) {
+// Цвета строки состояния / safe-зон (должны совпадать с --bg в CSS)
+const THEME_RGB = { dark: [10, 10, 13], light: [234, 236, 236] };
+const rgbHex = c => "#" + c.map(v => Math.round(v).toString(16).padStart(2, "0")).join("");
+let metaNow = null;
+let metaRaf = 0;
+
+// Плавно меняет theme-color синхронно с анимацией темы, чтобы safe-зоны не «щёлкали»
+function tweenMeta(light, ms) {
+  if (!themeMeta) return;
+  cancelAnimationFrame(metaRaf);
+  const to = THEME_RGB[light ? "light" : "dark"];
+  if (!metaNow) metaNow = THEME_RGB[light ? "dark" : "light"];
+  if (!ms || RM()) { metaNow = to; themeMeta.content = rgbHex(to); return; }
+  const from = metaNow, t0 = performance.now();
+  const tick = now => {
+    const k = Math.min((now - t0) / ms, 1);
+    const e = 1 - Math.pow(1 - k, 3);
+    metaNow = from.map((v, i) => v + (to[i] - v) * e);
+    themeMeta.content = rgbHex(metaNow);
+    if (k < 1) metaRaf = requestAnimationFrame(tick);
+  };
+  metaRaf = requestAnimationFrame(tick);
+}
+
+function paintTheme(light, ms = 0) {
   document.documentElement.classList.toggle("light", light);
   if (themeInput) themeInput.checked = light;
-  if (themeMeta) themeMeta.content = light ? "#EAECEC" : "#0a0a0d";
+  tweenMeta(light, ms);
 }
 
 function setTheme(light) {
@@ -110,7 +135,7 @@ function setTheme(light) {
   if (RM()) return paintTheme(light);
   if (!document.startViewTransition) {
     root.classList.add("theme-fade");
-    paintTheme(light);
+    paintTheme(light, 450);
     setTimeout(() => root.classList.remove("theme-fade"), 500);
     return;
   }
@@ -120,7 +145,7 @@ function setTheme(light) {
   const x = r.left + r.width / 2, y = r.top + r.height / 2;
   const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
 
-  const vt = document.startViewTransition(() => paintTheme(light));
+  const vt = document.startViewTransition(() => paintTheme(light, 450));
   vt.ready.then(() => root.animate(
     { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
     { duration: 450, easing: EASE, pseudoElement: "::view-transition-new(root)" }
@@ -453,10 +478,14 @@ function undo() {
 /* ============ Тост ============ */
 let toastTimer = null;
 let toastUndoFn = null;
+let toastDismissTimer = null;
 
 function showToast({ sub, title, id, undo: undoFn }) {
   const t = $("#toast");
   toastUndoFn = undoFn || null;
+  clearTimeout(toastDismissTimer);
+  t.classList.remove("dismissing");
+  t.style.transform = ""; t.style.opacity = ""; t.style.transition = "";
   t.innerHTML = `<span class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
     <div class="tmain" ${id ? `data-open="${id}"` : ""}><small>${esc(sub)}</small><b>${esc(title)}</b></div>
     ${undoFn ? `<button class="tundo" data-undo>Отменить</button>` : ""}<i class="bar"></i>`;
@@ -471,6 +500,62 @@ function hideToast() {
   clearTimeout(toastTimer);
   $("#toast").classList.remove("show");
 }
+
+/* Свайп вверх закрывает уведомление */
+(function bindToastDrag() {
+  const t = $("#toast");
+  let s = null;
+
+  t.addEventListener("pointerdown", e => {
+    if (!t.classList.contains("show") || (e.pointerType === "mouse" && e.button !== 0)) return;
+    s = { id: e.pointerId, x: e.clientX, y: e.clientY, dy: 0, drag: false, ly: e.clientY, lt: performance.now(), vy: 0 };
+  });
+
+  t.addEventListener("pointermove", e => {
+    if (!s) return;
+    const dy = e.clientY - s.y, dx = e.clientX - s.x;
+    if (!s.drag) {
+      if (Math.abs(dy) < 6) return;
+      if (Math.abs(dx) > Math.abs(dy)) { s = null; return; }
+      s.drag = true;
+      try { t.setPointerCapture(s.id); } catch (err) {}
+      // Пока палец на уведомлении — не закрываем его по таймеру
+      clearTimeout(toastTimer);
+      const bar = t.querySelector(".bar");
+      if (bar) bar.style.animationPlayState = "paused";
+      t.style.transition = "none";
+    }
+    s.dy = dy;
+    const now = performance.now(), dt = now - s.lt;
+    if (dt > 8) { s.vy = 0.6 * s.vy + 0.4 * ((e.clientY - s.ly) / dt); s.ly = e.clientY; s.lt = now; }
+    const y = dy < 0 ? dy : dy * 0.15;
+    t.style.transform = `translate(-50%, ${y}px)`;
+    t.style.opacity = String(Math.max(0.25, 1 + Math.min(dy, 0) / 110));
+  });
+
+  const end = () => {
+    if (!s) return;
+    const d = s; s = null;
+    if (!d.drag) return;
+    const bar = t.querySelector(".bar");
+    t.style.transition = "";
+    if (d.dy < -32 || d.vy < -0.45) {
+      haptic();
+      t.classList.add("dismissing");
+      t.style.transform = ""; t.style.opacity = "";
+      hideToast();
+      clearTimeout(toastDismissTimer);
+      toastDismissTimer = setTimeout(() => t.classList.remove("dismissing"), 450);
+    } else {
+      t.style.transform = ""; t.style.opacity = "";
+      if (bar) { bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = ""; bar.style.animationPlayState = ""; }
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(hideToast, 3500);
+    }
+  };
+  t.addEventListener("pointerup", end);
+  t.addEventListener("pointercancel", end);
+})();
 
 /* ============ Кнопка «Смотреть» ============ */
 function watchButton(m, cls) {
@@ -531,6 +616,45 @@ function renderList() {
   bindRowSwipe();
 }
 
+/* Плавное удаление: сначала строка уезжает с текущего места пальца до конца,
+   потом блок схлопывается по высоте, и только после этого обновляются данные. */
+async function removeRow(row, container, section, id, fromX) {
+  haptic();
+  container.classList.add("swiping", "gone");
+
+  const siblings = section ? section.querySelectorAll(".row-container:not(.gone)").length : 1;
+  const target = section && siblings === 0 ? section : container;
+
+  if (!RM() && row.animate) {
+    const w = row.offsetWidth || innerWidth;
+    row.style.transition = "none";
+    const remaining = Math.max(0, w + fromX) / w;
+    const slide = row.animate(
+      [{ transform: `translateX(${fromX}px)`, opacity: 1 }, { transform: `translateX(${-w}px)`, opacity: 0 }],
+      { duration: 200 + remaining * 160, easing: "cubic-bezier(.3,.6,.35,1)", fill: "forwards" }
+    );
+    try { await slide.finished; } catch (e) {}
+
+    const h = target.offsetHeight;
+    target.style.overflow = "hidden";
+    const collapse = target.animate(
+      [{ height: h + "px", opacity: 1, marginTop: "0px" }, { height: "0px", opacity: 0, marginTop: "-8px" }],
+      { duration: 380, easing: EASE, fill: "forwards" }
+    );
+    try { await collapse.finished; } catch (e) {}
+  }
+
+  const idx = state.liked.findIndex(x => x.id === id);
+  if (idx < 0) return;
+  const removed = state.liked.splice(idx, 1)[0];
+  save();
+  refreshList();
+  showToast({
+    sub: "Удалено из вечера", title: removed.title,
+    undo: () => { state.liked.splice(Math.min(idx, state.liked.length), 0, removed); save(); refreshList(); },
+  });
+}
+
 function bindRowSwipe() {
   document.querySelectorAll("#list .row").forEach(row => {
     let startX = 0, startY = 0, dx = 0, dragging = false, locked = false, moved = false;
@@ -539,6 +663,7 @@ function bindRowSwipe() {
     const id = +container.dataset.id;
 
     row.addEventListener("pointerdown", e => {
+      if (container.classList.contains("gone")) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
       startX = e.clientX; startY = e.clientY; dx = 0;
       dragging = true; locked = false; moved = false;
@@ -568,31 +693,18 @@ function bindRowSwipe() {
     const finish = () => {
       if (!dragging && !locked) { container.classList.remove("swiping"); row.style.transition = ""; return; }
       dragging = false;
-      row.style.transition = "";
 
       if (locked && dx < -70) {
-        row.style.transform = "translateX(-120%)";
-        row.style.opacity = "0";
-        haptic();
-        container.classList.add("removing");
-        if (section && !section.querySelectorAll(".row-container:not(.removing)").length) section.classList.add("removing");
-
-        setTimeout(() => {
-          const idx = state.liked.findIndex(x => x.id === id);
-          if (idx < 0) return;
-          const removed = state.liked.splice(idx, 1)[0];
-          save();
-          refreshList();
-          showToast({
-            sub: "Удалено из вечера", title: removed.title,
-            undo: () => { state.liked.splice(Math.min(idx, state.liked.length), 0, removed); save(); refreshList(); },
-          });
-        }, 380);
-      } else {
-        row.style.transform = "";
-        setTimeout(() => container.classList.remove("swiping"), 300);
-        if (!moved) { const m = findMovie(id); if (m) openSheet(m); }
+        const from = dx;
+        locked = false; dx = 0;
+        removeRow(row, container, section, id, from);
+        return;
       }
+
+      row.style.transition = "";
+      row.style.transform = "";
+      setTimeout(() => container.classList.remove("swiping"), 300);
+      if (!moved) { const m = findMovie(id); if (m) openSheet(m); }
       locked = false; dx = 0;
     };
     row.addEventListener("pointerup", finish);
@@ -709,9 +821,11 @@ function playerHtml(key) {
   return `<iframe src="https://www.youtube-nocookie.com/embed/${key}?autoplay=1&rel=0&playsinline=1${mute}" title="Трейлер"
     allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
 }
+// Нижняя панель действий — внизу экрана, в зоне большого пальца
 function actionsHtml(m) {
   const text = isLiked(m.id) ? "Убрать из вечера" : "В мой вечер";
-  return `${watchButton(m, "primary")}<button class="btn" data-toggle="${m.id}"><span class="btn-label fade-in">${text}</span></button>`;
+  return `<button class="btn icon" data-close aria-label="Закрыть">${ICON_CLOSE}</button>
+    ${watchButton(m, "primary")}<button class="btn" data-toggle="${m.id}"><span class="btn-label fade-in">${text}</span></button>`;
 }
 
 function openSheet(m, focusSrc) {
@@ -724,7 +838,7 @@ function openSheet(m, focusSrc) {
 
   o.classList.remove("closing");
   o.style.opacity = "";
-  o.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(m.title)}" id="sheet-element">
+  o.innerHTML = `<div class="sheet movie-sheet" role="dialog" aria-modal="true" aria-label="${esc(m.title)}" id="sheet-element">
     <div class="sheet-media" id="sheet-media">${mediaHtml(m)}</div>
     <button class="close" data-close aria-label="Закрыть"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <div class="sheet-body">
@@ -737,8 +851,8 @@ function openSheet(m, focusSrc) {
         <div class="src-row"><input id="src-input" type="url" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="https://… (ваш сервер или Google Drive)" value="${esc(url)}"><button class="btn" id="src-save">Сохранить</button></div>
         <small id="src-note">${url ? "Ссылка сохранена. Кнопка «Смотреть» откроет её в новой вкладке." : "Вставьте ссылку один раз, дальше «Смотреть» будет открывать фильм сразу."}</small>
       </div>
-      <div class="sheet-actions" id="sheet-actions">${actionsHtml(m)}</div>
       <div class="related-section" id="related-section"></div>
+      <div class="sheet-actions" id="sheet-actions">${actionsHtml(m)}</div>
     </div></div>`;
   o.hidden = false;
   pushLayer();
