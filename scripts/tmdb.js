@@ -22,16 +22,19 @@ const TMDB = (() => {
   async function request(url, headers) {
     let lastErr;
     for (let attempt = 0; attempt < 2; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10000);
       try {
-        const res = await fetch(url, { headers });
+        const res = await fetch(url, { headers, signal: ctrl.signal });
         if (res.status === 401) throw new Error("BAD_KEY");
-        if (res.status === 429 || res.status >= 500) throw new Error("HTTP_" + res.status);
         if (!res.ok) throw new Error("HTTP_" + res.status);
         return await res.json();
       } catch (e) {
         lastErr = e;
         if (e.message === "BAD_KEY") throw e;
-        if (attempt === 0) await wait(600);
+        if (attempt === 0) await wait(900);
+      } finally {
+        clearTimeout(timer);
       }
     }
     throw lastErr;
@@ -104,8 +107,8 @@ const TMDB = (() => {
     };
   }
 
-  async function details(id) {
-    const d = await get("/movie/" + id, {
+  async function details(id, light = false) {
+    const d = await get("/movie/" + id, light ? {} : {
       append_to_response: "videos,credits,recommendations,similar",
       include_video_language: "ru,en,null",
     });
@@ -171,7 +174,7 @@ const TMDB = (() => {
   }
 
   // Размеры TMDB: w92, w154, w185, w342, w500, w780, original
-  const img = (path, size = "w500") => (path ? `${IMG}/${size}${path}` : null);
+  const img = (path, size = "w780") => (path ? `${IMG}/${size}${path}` : null);
 
   return { genres, discover, details, img };
 })();

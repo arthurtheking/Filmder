@@ -12,9 +12,10 @@ const PASSED_LIMIT = 3000;
 const EASE = "cubic-bezier(.16,1,.3,1)";
 const SPRING = "cubic-bezier(.34,1.56,.64,1)";
 const FX_IN = [
-  { opacity: 0, transform: "translateY(22px) scale(.94)", filter: "blur(5px)" },
-  { opacity: 1, transform: "none", filter: "blur(0)" },
+  { opacity: 0, transform: "translateY(22px) scale(.96)" },
+  { opacity: 1, transform: "none" },
 ];
+const CARD_IMG = "w500";
 
 const RMQ = matchMedia("(prefers-reduced-motion: reduce)");
 const RM = () => RMQ.matches;
@@ -61,10 +62,14 @@ try {
   }
 } catch (e) {}
 
-const save = () => ls.set(STORE_KEY, JSON.stringify({
+const saveNow = () => ls.set(STORE_KEY, JSON.stringify({
   liked: state.liked, urls: state.urls, multiGenres: state.multiGenres,
   passed: [...passed].slice(-PASSED_LIMIT),
 }));
+let saveTimer = 0;
+const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400); };
+addEventListener("pagehide", saveNow);
+document.addEventListener("visibilitychange", () => { if (document.hidden) saveNow(); });
 
 const isLiked = id => state.liked.some(m => m.id === id);
 const isSeen = id => passed.has(id) || isLiked(id);
@@ -118,7 +123,7 @@ function setTheme(light) {
   const vt = document.startViewTransition(() => paintTheme(light));
   vt.ready.then(() => root.animate(
     { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
-    { duration: 700, easing: EASE, pseudoElement: "::view-transition-new(root)" }
+    { duration: 450, easing: EASE, pseudoElement: "::view-transition-new(root)" }
   )).catch(() => {});
 }
 
@@ -152,10 +157,10 @@ function burst(origin, color, count) {
 /* ============ Постеры ============ */
 function posterHtml(path, size, alt) {
   const src = TMDB.img(path, size);
-  return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false" loading="lazy" decoding="async">` : ""}</div>`;
+  return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false"${size === "w185" ? ' loading="lazy"' : ""} decoding="async">` : ""}</div>`;
 }
 function preloadDeck() {
-  deck.slice(0, 3).forEach(m => { if (m.poster) new Image().src = TMDB.img(m.poster, "w780"); });
+  deck.slice(0, 5).forEach(m => { if (m.poster) new Image().src = TMDB.img(m.poster, CARD_IMG); });
 }
 
 /* ============ Колода ============ */
@@ -201,11 +206,11 @@ async function refill(mode) {
 }
 
 const tf = i => `translateY(${i * 10}px) scale(${1 - i * 0.04})`;
-const fl = i => `brightness(${1 - i * 0.22})`;
+const dim = i => i * 0.22;
 
 function cardHtml(m) {
   const sub = m.orig && m.orig !== m.title ? `${esc(m.orig)} · ${m.year}` : m.year;
-  return `${posterHtml(m.poster, "w780", m.title)}<div class="shade"></div>
+  return `${posterHtml(m.poster, CARD_IMG, m.title)}<div class="shade"></div>
     <div class="tap-hint">${ICON_PLAY}Трейлер</div>
     <div class="rate">★ ${(m.rating || 0).toFixed(1)}</div>
     <div class="info">
@@ -253,14 +258,14 @@ function renderSwipe(mode, undoDir) {
     el.dataset.id = top[i].id;
     el.innerHTML = cardHtml(top[i]);
     el.style.transform = tf(i);
-    el.style.filter = fl(i);
+    el.style.setProperty("--dim", dim(i));
     if (i === 0) bindDrag(el, top[i]); else el.style.pointerEvents = "none";
     stage.appendChild(el);
 
     if (mode === "init" || mode === "filter") {
       anim(el, [
-        { opacity: 0, transform: `translateY(${70 + i * 14}px) scale(.9)`, filter: "blur(6px)" },
-        { opacity: 1, transform: tf(i), filter: fl(i) },
+        { opacity: 0, transform: `translateY(${70 + i * 14}px) scale(.92)` },
+        { opacity: 1, transform: tf(i) },
       ], { duration: mode === "init" ? 800 : 520, delay: (top.length - 1 - i) * 90, easing: SPRING });
     } else if (mode === "fly" && i === 2) {
       anim(el, [{ opacity: 0, transform: "translateY(40px) scale(.88)" }, { opacity: 1, transform: tf(2) }], { duration: 450 });
@@ -286,9 +291,8 @@ function hint(el) {
 
 /* ============ Свайп карточки ============ */
 function bindDrag(el, m) {
-  let s = null;
+  let s = null, raf = 0;
   const likeStamp = el.querySelector(".stamp.like"), nopeStamp = el.querySelector(".stamp.nope");
-  const pos = el.querySelector(".poster");
 
   el.addEventListener("pointerdown", e => {
     if (busy || (e.pointerType === "mouse" && e.button !== 0)) return;
@@ -296,7 +300,6 @@ function bindDrag(el, m) {
     s = { x: e.clientX, y: e.clientY, dx: 0, dy: 0, moved: false, lx: e.clientX, lt: performance.now(), vx: 0 };
     try { el.setPointerCapture(e.pointerId); } catch (err) {}
     el.style.transition = "none";
-    if (pos) pos.style.transition = "none";
   });
 
   el.addEventListener("pointermove", e => {
@@ -308,24 +311,24 @@ function bindDrag(el, m) {
     const now = performance.now(), dt = now - s.lt;
     if (dt > 8) { s.vx = 0.6 * s.vx + 0.4 * ((e.clientX - s.lx) / dt); s.lx = e.clientX; s.lt = now; }
 
-    el.style.transform = `translate(${s.dx}px, ${s.dy}px) rotate(${s.dx / 18}deg)`;
-    if (pos) pos.style.transform = `translate(${-s.dx * 0.18}px, ${-s.dy * 0.18}px) scale(1.3)`;
-
-    const k = Math.min(Math.abs(s.dx) / 100, 1);
-    likeStamp.style.opacity = s.dx > 0 ? k : 0;
-    nopeStamp.style.opacity = s.dx < 0 ? k : 0;
-    likeStamp.style.transform = `rotate(-12deg) scale(${0.7 + 0.3 * k})`;
-    nopeStamp.style.transform = `rotate(12deg) scale(${0.7 + 0.3 * k})`;
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      if (!s) return;
+      el.style.transform = `translate3d(${s.dx}px, ${s.dy}px, 0) rotate(${s.dx / 18}deg)`;
+      const k = Math.min(Math.abs(s.dx) / 100, 1);
+      likeStamp.style.opacity = s.dx > 0 ? k : 0;
+      nopeStamp.style.opacity = s.dx < 0 ? k : 0;
+    });
   });
 
   const end = e => {
     if (!s) return;
+    cancelAnimationFrame(raf); raf = 0;
     const d = s; s = null;
     el.style.transition = "";
-    if (pos) pos.style.transition = "";
 
     if (!d.moved) {
-      if (pos) pos.style.transform = "";
       if (e.type === "pointerup") openSheet(m);
       return;
     }
@@ -335,7 +338,6 @@ function bindDrag(el, m) {
     else {
       el.style.transition = `transform .5s ${SPRING}`;
       el.style.transform = tf(0);
-      if (pos) pos.style.transform = "";
       likeStamp.style.opacity = nopeStamp.style.opacity = 0;
     }
   };
@@ -351,9 +353,9 @@ function fly(el, m, dir) {
   cards.forEach((c, k) => {
     const i = cards.length - 1 - k;
     if (i > 0) {
-      c.style.transition = `transform .4s ${EASE}, filter .4s`;
+      c.style.transition = `transform .4s ${EASE}`;
       c.style.transform = tf(i - 1);
-      c.style.filter = fl(i - 1);
+      c.style.setProperty("--dim", dim(i - 1));
     }
   });
   el.style.transition = "transform .38s cubic-bezier(.5,0,.9,.4), opacity .38s ease-in";
@@ -377,34 +379,60 @@ function swipeButton(dir) {
   fly(el, deck[0], dir);
 }
 
+function advanceStack() {
+  const stage = $("#stage");
+  const cards = stage.querySelectorAll(".card");
+  if (!deck.length || !cards.length) return renderSwipe("fly");
+  cards[cards.length - 1].remove();
+  const left = stage.querySelectorAll(".card");
+  const top = left[left.length - 1];
+  if (!top || +top.dataset.id !== deck[0].id) return renderSwipe("fly");
+  top.style.pointerEvents = "";
+  bindDrag(top, deck[0]);
+  if (deck.length >= 3 && left.length < 3) {
+    const el = document.createElement("div");
+    el.className = "card";
+    el.dataset.id = deck[2].id;
+    el.innerHTML = cardHtml(deck[2]);
+    el.style.transform = tf(2);
+    el.style.setProperty("--dim", dim(2));
+    el.style.pointerEvents = "none";
+    stage.prepend(el);
+    anim(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 300 });
+  }
+  $("#btn-undo").disabled = history_.length === 0;
+  $("#btn-nope").disabled = $("#btn-like").disabled = deck.length === 0;
+}
+
 function decide(m, dir) {
   deck = deck.filter(d => d.id !== m.id);
   if (dir > 0) {
     state.liked.push(snap(m));
-    burst($("#btn-like"), "var(--like)", 12);
+    burst($("#btn-like"), "var(--like)", 8);
     loadRuntime(m.id);
   } else {
     passed.add(m.id);
-    burst($("#btn-nope"), "var(--nope)", 6);
+    burst($("#btn-nope"), "var(--nope)", 4);
   }
   history_.push({ movie: m, dir });
   if (history_.length > HISTORY_LIMIT) history_.shift();
   save();
-  renderAll("fly");
+  advanceStack();
+  refreshList();
   if (dir > 0) showToast({ sub: "Добавлено в мой вечер", title: m.title, id: m.id, undo });
   preloadDeck();
   topUp();
 }
 
 function loadRuntime(id) {
-  TMDB.details(id).then(d => {
+  TMDB.details(id, true).then(d => {
     const s = state.liked.find(x => x.id === id);
     if (!s) return;
     if (d.runtime) s.runtime = d.runtime;
     if (d.genres && d.genres.length) s.genres = d.genres;
     if (!s.category || s.category === "Другое") s.category = categoryOf(Object.assign({}, s, { category: null }));
     save();
-    renderList();
+    refreshList();
   }).catch(() => {});
 }
 
@@ -485,7 +513,7 @@ function renderList() {
   for (const cat of categoryOrder) {
     html += `<div class="category-section" data-category="${esc(cat)}"><div class="list-category-title">${esc(cat)}</div>`;
     for (const m of groups[cat]) {
-      html += `<div class="row-container" data-id="${m.id}" style="--i:${idx++}">
+      html += `<div class="row-container" data-id="${m.id}" style="--i:${Math.min(idx++, 8)}">
         <div class="row-delete-bg">Удалить</div>
         <div class="row">
           <div class="thumb">${posterHtml(m.poster, "w185", m.title)}</div>
@@ -730,12 +758,16 @@ function openSheet(m, focusSrc) {
     if (stored && (!stored.runtime || !stored.genres.length)) {
       if (d.runtime) stored.runtime = d.runtime;
       if (d.genres.length) stored.genres = d.genres;
-      save(); renderList();
+      save(); refreshList();
     }
 
     const media = $("#sheet-media");
     if (media) {
-      if (d.trailerKey) media.innerHTML = playerHtml(d.trailerKey);
+      if (d.trailerKey) setTimeout(() => {
+        if (!sheetMovie || sheetMovie.id !== id) return;
+        const mm = $("#sheet-media");
+        if (mm) mm.innerHTML = playerHtml(d.trailerKey);
+      }, 450);
       else {
         const sp = media.querySelector(".spinner"); if (sp) sp.remove();
         media.insertAdjacentHTML("beforeend", `<div class="no-trailer"><span>Трейлер не найден</span><a class="btn" href="${youtubeSearch(sheetMovie)}" target="_blank" rel="noopener noreferrer">Искать на YouTube</a></div>`);
@@ -795,7 +827,7 @@ function toggleLike(m) {
     btn.classList.remove("pop-stroke-red", "pop-stroke-green");
     void btn.offsetWidth;
     btn.classList.add(wasLiked ? "pop-stroke-red" : "pop-stroke-green");
-    burst(btn, wasLiked ? "var(--nope)" : "var(--user-accent)", 16);
+    burst(btn, wasLiked ? "var(--nope)" : "var(--user-accent)", 10);
     haptic();
     if (label) { label.classList.remove("fade-in"); label.classList.add("fade-out"); }
   }
@@ -950,6 +982,7 @@ function setTab(name) {
   $("#tab-list").setAttribute("aria-selected", name === "list");
   $("#tab-ind").classList.toggle("right", name === "list");
   if (!changed) return;
+  if (name === "list" && listDirty) { listDirty = false; renderList(); }
   next.classList.remove("enter"); void next.offsetWidth; next.classList.add("enter");
   if (name === "list") {
     const l = $("#list");
@@ -966,11 +999,17 @@ function updateBadge() {
   if (state.liked.length > prevLiked) bump(b);
   prevLiked = state.liked.length;
 }
-function refreshList() { renderList(); updateBadge(); }
+let listDirty = false;
+function refreshList() {
+  updateBadge();
+  if ($("#view-list").hidden) listDirty = true; else { listDirty = false; renderList(); }
+}
 function renderAll(mode, undoDir) { renderSwipe(mode, undoDir); refreshList(); }
 
 /* ============ Запуск ============ */
 let appStarted = false;
+let splashResolve;
+const splashDone = new Promise(r => (splashResolve = r));
 
 async function boot() {
   try {
@@ -984,6 +1023,7 @@ async function boot() {
   updateFilterBadge();
   renderAll("init");
   await fillDeck(8);
+  await splashDone;
   renderSwipe("init");
   checkTutorial();
 }
@@ -997,6 +1037,7 @@ function startApp() {
 
 async function runSplash() {
   const sp = $("#splash");
+  startApp();
   const animated = !RM() && !!sp.animate;
   try {
     if (animated) {
@@ -1004,26 +1045,28 @@ async function runSplash() {
       sp.addEventListener("click", () => {
         try { sp.getAnimations({ subtree: true }).forEach(a => a.finish()); } catch (e) {}
       });
-      try { await Promise.race([document.fonts.ready, wait(1200)]); } catch (e) {}
+      try { await Promise.race([document.fonts.ready, wait(700)]); } catch (e) {}
       const glow = "rgba(255, 122, 92, ";
       dot.animate([{ transform: "scale(0)" }, { transform: "scale(1)" }], { duration: 450, easing: SPRING, fill: "forwards" });
-      [500, 1150].forEach(delay => dot.animate([
+      [300, 800].forEach(delay => dot.animate([
         { transform: "scale(1)", boxShadow: `0 0 0 0 ${glow}.55)` },
         { transform: "scale(1.5)", boxShadow: `0 0 0 0 ${glow}.45)`, offset: 0.4 },
         { transform: "scale(1)", boxShadow: `0 0 0 18px ${glow}0)` },
       ], { duration: 650, delay, easing: "ease-out" }));
       const shift = (word.getBoundingClientRect().width + 8) / 2;
-      const opt = { duration: 850, delay: 1750, easing: EASE, fill: "both" };
+      const opt = { duration: 850, delay: 900, easing: EASE, fill: "both" };
       mark.animate([{ transform: `translateX(${-shift}px)` }, { transform: "translateX(0)" }], opt);
       const reveal = word.animate([{ clipPath: "inset(0 0 0 100%)" }, { clipPath: "inset(0 0 0 0%)" }], opt);
       await reveal.finished;
-      await wait(350);
+      await wait(150);
     }
     startApp();
+    splashResolve();
     if (animated) await sp.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 450, fill: "forwards", easing: EASE }).finished;
   } catch (e) {
     startApp();
   }
+  splashResolve();
   sp.remove();
 }
 runSplash();
