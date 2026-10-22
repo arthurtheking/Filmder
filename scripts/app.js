@@ -6,8 +6,13 @@ const $ = sel => document.querySelector(sel);
 const STORE_KEY = "filmder-tmdb-v2";
 const THEME_KEY = "filmder-theme";
 const TUTORIAL_KEY = "filmder-tutorial-shown";
+const PENDING_KEY = "filmder-pending-watch";
 const HISTORY_LIMIT = 30;
 const PASSED_LIMIT = 3000;
+
+// true  — трейлер стартует сам при открытии карточки (как раньше)
+// false — показывается кнопка ▶, плеер создаётся только по тапу (самый лёгкий режим для iPhone)
+const TRAILER_AUTOPLAY = true;
 
 const EASE = "cubic-bezier(.16,1,.3,1)";
 const SPRING = "cubic-bezier(.34,1.56,.64,1)";
@@ -38,8 +43,10 @@ function plural(n) {
   const a = n % 10, b = n % 100;
   return a === 1 && b !== 11 ? "фильм" : a >= 2 && a <= 4 && (b < 10 || b >= 20) ? "фильма" : "фильмов";
 }
+const fmtDate = ts => { try { return new Date(ts).toLocaleDateString("ru-RU", { day: "numeric", month: "short" }); } catch (e) { return ""; } };
 const ICON_PLAY = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>`;
 const ICON_CLOSE = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>`;
+const ICON_CHECK = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 const youtubeSearch = m => "https://www.youtube.com/results?search_query=" + encodeURIComponent(`${m.title} ${m.year} официальный трейлер`);
 const validUrl = u => /^https?:\/\/\S+$/i.test(u);
 
@@ -50,12 +57,13 @@ function anim(el, keyframes, options) {
 const bump = el => anim(el, [{ transform: "scale(1)" }, { transform: "scale(1.35)" }, { transform: "scale(1)" }], { duration: 400, easing: SPRING });
 
 /* ============ Состояние ============ */
-let state = { liked: [], urls: {}, multiGenres: [] };
+let state = { liked: [], watched: [], urls: {}, multiGenres: [] };
 const passed = new Set();
 try {
   const saved = JSON.parse(ls.get(STORE_KEY) || "null");
   if (saved && typeof saved === "object") {
     if (Array.isArray(saved.liked)) state.liked = saved.liked.filter(m => m && m.id);
+    if (Array.isArray(saved.watched)) state.watched = saved.watched.filter(m => m && m.id);
     if (saved.urls && typeof saved.urls === "object") state.urls = saved.urls;
     if (Array.isArray(saved.multiGenres)) state.multiGenres = saved.multiGenres;
     else if (saved.genre) state.multiGenres = [saved.genre];
@@ -64,7 +72,7 @@ try {
 } catch (e) {}
 
 const saveNow = () => ls.set(STORE_KEY, JSON.stringify({
-  liked: state.liked, urls: state.urls, multiGenres: state.multiGenres,
+  liked: state.liked, watched: state.watched, urls: state.urls, multiGenres: state.multiGenres,
   passed: [...passed].slice(-PASSED_LIMIT),
 }));
 let saveTimer = 0;
@@ -73,7 +81,9 @@ addEventListener("pagehide", saveNow);
 document.addEventListener("visibilitychange", () => { if (document.hidden) saveNow(); });
 
 const isLiked = id => state.liked.some(m => m.id === id);
-const isSeen = id => passed.has(id) || isLiked(id);
+const isWatched = id => state.watched.some(m => m.id === id);
+const isSeen = id => passed.has(id) || isLiked(id) || isWatched(id);
+const findStored = id => state.liked.find(m => m.id === id) || state.watched.find(m => m.id === id);
 
 function categoryOf(m) {
   if (m.category) return m.category;
@@ -91,6 +101,7 @@ let paging = newPaging();
 let history_ = [];
 let busy = false;
 let sheetMovie = null;
+let listMode = "queue"; // "queue" | "watched"
 
 function newPaging() { return { page: 1, total: 1, loading: false, error: null }; }
 
@@ -182,10 +193,24 @@ function burst(origin, color, count) {
 /* ============ Постеры ============ */
 function posterHtml(path, size, alt) {
   const src = TMDB.img(path, size);
-  return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false"${size === "w185" ? ' loading="lazy"' : ""} decoding="async">` : ""}</div>`;
+  const decoding = size === CARD_IMG ? "sync" : "async"; // карточки колоды не должны «доезжать» после вставки
+  return `<div class="poster">${src ? `<img src="${src}" alt="${esc(alt || "")}" draggable="false"${size === "w185" ? ' loading="lazy"' : ""} decoding="${decoding}">` : ""}</div>`;
+}
+
+// Держим ссылки на предзагруженные картинки: иначе браузер выбрасывает декодированный
+// битмап, и при вставке новой карточки постер мигает пустым градиентом.
+const imgKeep = new Map();
+function keepImage(url) {
+  if (imgKeep.has(url)) return;
+  const im = new Image();
+  im.decoding = "async";
+  im.src = url;
+  imgKeep.set(url, im);
+  if (im.decode) im.decode().catch(() => {});
+  if (imgKeep.size > 16) imgKeep.delete(imgKeep.keys().next().value);
 }
 function preloadDeck() {
-  deck.slice(0, 5).forEach(m => { if (m.poster) new Image().src = TMDB.img(m.poster, CARD_IMG); });
+  deck.slice(0, 6).forEach(m => { if (m.poster) keepImage(TMDB.img(m.poster, CARD_IMG)); });
 }
 
 /* ============ Колода ============ */
@@ -276,6 +301,14 @@ function renderSwipe(mode, undoDir) {
 
   delete stage.dataset.empty;
   const top = deck.slice(0, 3);
+
+  // Если на сцене уже лежит ровно эта стопка — ничего не пересоздаём.
+  // Раньше любой renderAll() (например, из шторки) сносил карточки и грузил постеры заново — отсюда мерцание.
+  if (!mode || mode === "fill") {
+    const cur = [...stage.querySelectorAll(".card")].map(c => +c.dataset.id).reverse();
+    if (cur.length === top.length && cur.every((id, i) => id === top[i].id)) return;
+  }
+
   stage.innerHTML = "";
   for (let i = top.length - 1; i >= 0; i--) {
     const el = document.createElement("div");
@@ -451,7 +484,7 @@ function decide(m, dir) {
 
 function loadRuntime(id) {
   TMDB.details(id, true).then(d => {
-    const s = state.liked.find(x => x.id === id);
+    const s = findStored(id);
     if (!s) return;
     if (d.runtime) s.runtime = d.runtime;
     if (d.genres && d.genres.length) s.genres = d.genres;
@@ -475,25 +508,137 @@ function undo() {
   renderAll("undo", last.dir);
 }
 
+/* ============ Просмотрено ============ */
+// Фильм может быть в одном из трёх состояний: ничего / «К просмотру» (liked) / «Просмотрено» (watched).
+// Просмотренный фильм не показывается в колоде и живёт в отдельном списке.
+function markWatched(m) {
+  if (!m || isWatched(m.id)) return;
+  const id = m.id;
+  const likedIdx = state.liked.findIndex(x => x.id === id);
+  const prev = likedIdx >= 0 ? state.liked.splice(likedIdx, 1)[0] : null;
+  const entry = Object.assign(prev || snap(m), { watchedAt: Date.now() });
+  if (!entry.runtime && m.runtime) entry.runtime = m.runtime;
+  state.watched.unshift(entry);
+  passed.delete(id);
+  const wasInDeck = deck.some(d => d.id === id);
+  deck = deck.filter(d => d.id !== id);
+  history_ = history_.filter(h => h.movie.id !== id);
+  if (!entry.runtime) loadRuntime(id);
+  save();
+  haptic();
+  renderAll();
+  showToast({
+    sub: "Отмечено просмотренным", title: entry.title,
+    undo: () => {
+      const i = state.watched.findIndex(x => x.id === id);
+      if (i >= 0) state.watched.splice(i, 1);
+      delete entry.watchedAt;
+      if (prev) state.liked.splice(Math.min(likedIdx, state.liked.length), 0, prev);
+      else if (wasInDeck) deck.unshift(m);
+      save();
+      renderAll();
+    },
+  });
+}
+
+function unmarkWatched(id) {
+  const i = state.watched.findIndex(x => x.id === id);
+  if (i < 0) return;
+  const entry = state.watched.splice(i, 1)[0];
+  const copy = Object.assign({}, entry);
+  delete copy.watchedAt;
+  state.liked.push(copy);
+  passed.delete(id);
+  save();
+  haptic();
+  renderAll();
+  showToast({
+    sub: "Вернули в «Мой вечер»", title: entry.title,
+    undo: () => {
+      const j = state.liked.findIndex(x => x.id === id);
+      if (j >= 0) state.liked.splice(j, 1);
+      state.watched.splice(Math.min(i, state.watched.length), 0, entry);
+      save();
+      renderAll();
+    },
+  });
+}
+
+function deleteLiked(id) {
+  const idx = state.liked.findIndex(x => x.id === id);
+  if (idx < 0) return;
+  const removed = state.liked.splice(idx, 1)[0];
+  save();
+  refreshList();
+  showToast({
+    sub: "Удалено из вечера", title: removed.title,
+    undo: () => { state.liked.splice(Math.min(idx, state.liked.length), 0, removed); save(); refreshList(); },
+  });
+}
+
+function deleteWatched(id) {
+  const idx = state.watched.findIndex(x => x.id === id);
+  if (idx < 0) return;
+  const removed = state.watched.splice(idx, 1)[0];
+  save();
+  refreshList();
+  showToast({
+    sub: "Удалено из просмотренных", title: removed.title,
+    undo: () => { state.watched.splice(Math.min(idx, state.watched.length), 0, removed); save(); refreshList(); },
+  });
+}
+
+// dir < 0 — смахнули влево (удалить), dir > 0 — вправо (просмотрено / вернуть в вечер)
+function commitRow(dir, id) {
+  if (listMode === "queue") {
+    if (dir < 0) deleteLiked(id);
+    else markWatched(state.liked.find(x => x.id === id));
+  } else {
+    if (dir < 0) deleteWatched(id);
+    else unmarkWatched(id);
+  }
+}
+
+/* Пользователь нажал «Смотреть» → при возвращении в приложение предлагаем отметить фильм просмотренным */
+function rememberPending(id) {
+  const m = findMovie(id) || sheetMovie;
+  if (m && m.id === id && !isWatched(id)) ls.set(PENDING_KEY, JSON.stringify(snap(m)));
+}
+function checkPending() {
+  let p = null;
+  try { p = JSON.parse(ls.get(PENDING_KEY) || "null"); } catch (e) {}
+  if (!p || !p.id) return;
+  ls.set(PENDING_KEY, "");
+  if (isWatched(p.id)) return;
+  showToast({
+    sub: "Посмотрели фильм?", title: p.title, ms: 8000, actionLabel: "Просмотрено",
+    undo: () => markWatched(findMovie(p.id) || p),
+  });
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) setTimeout(checkPending, 600); });
+
 /* ============ Тост ============ */
 let toastTimer = null;
 let toastUndoFn = null;
 let toastDismissTimer = null;
+let toastMs = 3500;
 
-function showToast({ sub, title, id, undo: undoFn }) {
+function showToast({ sub, title, id, undo: undoFn, actionLabel, ms }) {
   const t = $("#toast");
   toastUndoFn = undoFn || null;
+  toastMs = ms || 3500;
   clearTimeout(toastDismissTimer);
   t.classList.remove("dismissing");
   t.style.transform = ""; t.style.opacity = ""; t.style.transition = "";
+  t.style.setProperty("--toast-ms", toastMs + "ms");
   t.innerHTML = `<span class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
     <div class="tmain" ${id ? `data-open="${id}"` : ""}><small>${esc(sub)}</small><b>${esc(title)}</b></div>
-    ${undoFn ? `<button class="tundo" data-undo>Отменить</button>` : ""}<i class="bar"></i>`;
+    ${undoFn ? `<button class="tundo" data-undo>${esc(actionLabel || "Отменить")}</button>` : ""}<i class="bar"></i>`;
   t.classList.remove("show");
   void t.offsetWidth;
   t.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(hideToast, 3500);
+  toastTimer = setTimeout(hideToast, toastMs);
 }
 
 function hideToast() {
@@ -550,7 +695,7 @@ function hideToast() {
       t.style.transform = ""; t.style.opacity = "";
       if (bar) { bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = ""; bar.style.animationPlayState = ""; }
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(hideToast, 3500);
+      toastTimer = setTimeout(hideToast, toastMs);
     }
   };
   t.addEventListener("pointerup", end);
@@ -560,67 +705,104 @@ function hideToast() {
 /* ============ Кнопка «Смотреть» ============ */
 function watchButton(m, cls) {
   const url = state.urls[m.id];
-  if (url && validUrl(url)) return `<a class="btn ${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ICON_PLAY}Смотреть</a>`;
+  if (url && validUrl(url)) return `<a class="btn ${cls}" data-watch="${m.id}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ICON_PLAY}Смотреть</a>`;
   return `<button class="btn ${cls}" data-add-src="${m.id}">${ICON_PLAY}Смотреть</button>`;
 }
 
 /* ============ Список «Мой вечер» ============ */
 let categoryOrder = [];
 
+function rowHtml(m, i, watchedMode) {
+  const meta = [m.year, dur(m.runtime), `★ ${(m.rating || 0).toFixed(1)}`].filter(Boolean).join(" · ");
+  const date = watchedMode && m.watchedAt ? `<div class="row-date">Просмотрено ${esc(fmtDate(m.watchedAt))}</div>` : "";
+  const check = watchedMode ? "" : `<button class="row-check" data-mark="${m.id}" aria-label="Отметить просмотренным">${ICON_CHECK}</button>`;
+  return `<div class="row-container" data-id="${m.id}" style="--i:${Math.min(i, 8)}">
+    <div class="row-watch-bg">${watchedMode ? "В вечер" : "Просмотрено"}</div>
+    <div class="row-delete-bg">Удалить</div>
+    <div class="row">
+      <div class="thumb">${posterHtml(m.poster, "w185", m.title)}</div>
+      <div class="row-main">
+        <div class="row-title">${esc(m.title)}</div>
+        <div class="row-meta">${meta}</div>
+        ${date}
+      </div>
+      ${check}
+    </div>
+  </div>`;
+}
+
 function renderList() {
   const list = $("#list");
-  const items = state.liked;
+  const watchedMode = listMode === "watched";
+  const items = watchedMode ? state.watched : state.liked;
+
   if (!items.length) {
-    categoryOrder = [];
-    list.innerHTML = `<div class="empty" style="position:static;flex:1">
-      <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.6 4.5 6.4 4.5c2.2 0 3.6 1.2 4.6 2.7h2c1-1.5 2.4-2.7 4.6-2.7 3.8 0 5.5 3.9 4 7.3C19.5 16.4 12 21 12 21z"/></svg>
-      <h2>Вечер пока пуст</h2><p>Свайпайте вправо фильмы, которые хочется посмотреть. Они появятся здесь.</p></div>`;
+    if (!watchedMode) categoryOrder = [];
+    list.innerHTML = watchedMode
+      ? `<div class="empty" style="position:static;flex:1">
+          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>
+          <h2>Пока ничего не просмотрено</h2><p>Отметьте фильм галочкой, смахните его вправо в списке «К просмотру» или нажмите «Отметить просмотренным» в карточке фильма.</p></div>`
+      : `<div class="empty" style="position:static;flex:1">
+          <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.6 4.5 6.4 4.5c2.2 0 3.6 1.2 4.6 2.7h2c1-1.5 2.4-2.7 4.6-2.7 3.8 0 5.5 3.9 4 7.3C19.5 16.4 12 21 12 21z"/></svg>
+          <h2>Вечер пока пуст</h2><p>Свайпайте вправо фильмы, которые хочется посмотреть. Они появятся здесь.</p></div>`;
     return;
   }
 
   const known = items.filter(m => m.runtime);
   const total = known.reduce((s, m) => s + m.runtime, 0);
-  const totalText = known.length ? `Всего ${known.length < items.length ? "около " : ""}${dur(total)} без перерывов` : "Считаю длительность…";
-
-  const groups = {};
-  items.forEach(m => {
-    const cat = (m.category = categoryOf(m));
-    (groups[cat] = groups[cat] || []).push(m);
-  });
-
-  const current = Object.keys(groups);
-  categoryOrder = categoryOrder.filter(c => current.includes(c));
-  current.forEach(c => { if (!categoryOrder.includes(c)) categoryOrder.push(c); });
+  const totalText = known.length
+    ? (watchedMode ? `Всего ${known.length < items.length ? "около " : ""}${dur(total)} кино` : `Всего ${known.length < items.length ? "около " : ""}${dur(total)} без перерывов`)
+    : "Считаю длительность…";
 
   const scroll = list.scrollTop;
   let html = `<div class="summary" style="--i:0"><b>${items.length} ${plural(items.length)}</b><span>${totalText}</span></div>`;
   let idx = 1;
-  for (const cat of categoryOrder) {
-    html += `<div class="category-section" data-category="${esc(cat)}"><div class="list-category-title">${esc(cat)}</div>`;
-    for (const m of groups[cat]) {
-      html += `<div class="row-container" data-id="${m.id}" style="--i:${Math.min(idx++, 8)}">
-        <div class="row-delete-bg">Удалить</div>
-        <div class="row">
-          <div class="thumb">${posterHtml(m.poster, "w185", m.title)}</div>
-          <div class="row-main">
-            <div class="row-title">${esc(m.title)}</div>
-            <div class="row-meta">${[m.year, dur(m.runtime), `★ ${(m.rating || 0).toFixed(1)}`].filter(Boolean).join(" · ")}</div>
-          </div>
-        </div>
-      </div>`;
-    }
+
+  if (watchedMode) {
+    html += `<div class="category-section">`;
+    for (const m of items) html += rowHtml(m, idx++, true);
     html += `</div>`;
+  } else {
+    const groups = {};
+    items.forEach(m => {
+      const cat = (m.category = categoryOf(m));
+      (groups[cat] = groups[cat] || []).push(m);
+    });
+    const current = Object.keys(groups);
+    categoryOrder = categoryOrder.filter(c => current.includes(c));
+    current.forEach(c => { if (!categoryOrder.includes(c)) categoryOrder.push(c); });
+    for (const cat of categoryOrder) {
+      html += `<div class="category-section" data-category="${esc(cat)}"><div class="list-category-title">${esc(cat)}</div>`;
+      for (const m of groups[cat]) html += rowHtml(m, idx++, false);
+      html += `</div>`;
+    }
   }
+
   list.innerHTML = html;
   list.scrollTop = scroll;
   bindRowSwipe();
 }
 
-/* Плавное удаление: сначала строка уезжает с текущего места пальца до конца,
+function setListMode(mode) {
+  if (mode === listMode) return;
+  listMode = mode;
+  $("#seg-queue").setAttribute("aria-selected", mode === "queue");
+  $("#seg-watched").setAttribute("aria-selected", mode === "watched");
+  $("#seg-ind").classList.toggle("right", mode === "watched");
+  const l = $("#list");
+  renderList();
+  l.scrollTop = 0;
+  l.classList.remove("enter"); void l.offsetWidth; l.classList.add("enter");
+  setTimeout(() => l.classList.remove("enter"), 1200);
+}
+
+/* Плавное удаление / перенос: строка уезжает с места пальца до конца,
    потом блок схлопывается по высоте, и только после этого обновляются данные. */
-async function removeRow(row, container, section, id, fromX) {
+async function removeRow(row, container, section, fromX, dir, commit) {
+  if (container.classList.contains("gone")) return;
   haptic();
-  container.classList.add("swiping", "gone");
+  container.classList.remove(dir > 0 ? "dir-l" : "dir-r");
+  container.classList.add("swiping", "gone", dir > 0 ? "dir-r" : "dir-l");
 
   const siblings = section ? section.querySelectorAll(".row-container:not(.gone)").length : 1;
   const target = section && siblings === 0 ? section : container;
@@ -628,9 +810,9 @@ async function removeRow(row, container, section, id, fromX) {
   if (!RM() && row.animate) {
     const w = row.offsetWidth || innerWidth;
     row.style.transition = "none";
-    const remaining = Math.max(0, w + fromX) / w;
+    const remaining = Math.max(0, w - dir * fromX) / w;
     const slide = row.animate(
-      [{ transform: `translateX(${fromX}px)`, opacity: 1 }, { transform: `translateX(${-w}px)`, opacity: 0 }],
+      [{ transform: `translateX(${fromX}px)`, opacity: 1 }, { transform: `translateX(${dir * w}px)`, opacity: 0 }],
       { duration: 200 + remaining * 160, easing: "cubic-bezier(.3,.6,.35,1)", fill: "forwards" }
     );
     try { await slide.finished; } catch (e) {}
@@ -643,16 +825,7 @@ async function removeRow(row, container, section, id, fromX) {
     );
     try { await collapse.finished; } catch (e) {}
   }
-
-  const idx = state.liked.findIndex(x => x.id === id);
-  if (idx < 0) return;
-  const removed = state.liked.splice(idx, 1)[0];
-  save();
-  refreshList();
-  showToast({
-    sub: "Удалено из вечера", title: removed.title,
-    undo: () => { state.liked.splice(Math.min(idx, state.liked.length), 0, removed); save(); refreshList(); },
-  });
+  commit();
 }
 
 function bindRowSwipe() {
@@ -661,8 +834,10 @@ function bindRowSwipe() {
     const container = row.closest(".row-container");
     const section = row.closest(".category-section");
     const id = +container.dataset.id;
+    const clearDir = () => container.classList.remove("swiping", "dir-l", "dir-r");
 
     row.addEventListener("pointerdown", e => {
+      if (e.target.closest(".row-check")) return; // кнопка-галочка обрабатывается кликом
       if (container.classList.contains("gone")) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
       startX = e.clientX; startY = e.clientY; dx = 0;
@@ -680,30 +855,34 @@ function bindRowSwipe() {
       if (!locked) {
         if (Math.abs(dy) > Math.abs(dx) + 2) {
           dragging = false;
-          container.classList.remove("swiping");
+          clearDir();
           row.style.transition = "";
           row.style.transform = "";
           return;
         }
         if (Math.abs(dx) > 6) { locked = true; container.classList.add("swiping"); }
       }
-      if (locked && dx < 0) row.style.transform = `translateX(${dx}px)`;
+      if (locked) {
+        container.classList.toggle("dir-l", dx < 0);
+        container.classList.toggle("dir-r", dx > 0);
+        row.style.transform = `translateX(${dx}px)`;
+      }
     });
 
     const finish = () => {
-      if (!dragging && !locked) { container.classList.remove("swiping"); row.style.transition = ""; return; }
+      if (!dragging && !locked) { clearDir(); row.style.transition = ""; return; }
       dragging = false;
 
-      if (locked && dx < -70) {
-        const from = dx;
+      if (locked && Math.abs(dx) > 70) {
+        const from = dx, dir = dx < 0 ? -1 : 1;
         locked = false; dx = 0;
-        removeRow(row, container, section, id, from);
+        removeRow(row, container, section, from, dir, () => commitRow(dir, id));
         return;
       }
 
       row.style.transition = "";
       row.style.transform = "";
-      setTimeout(() => container.classList.remove("swiping"), 300);
+      setTimeout(clearDir, 300);
       if (!moved) { const m = findMovie(id); if (m) openSheet(m); }
       locked = false; dx = 0;
     };
@@ -715,31 +894,51 @@ function bindRowSwipe() {
 function findMovie(id) {
   return deck.find(m => m.id === id)
     || state.liked.find(m => m.id === id)
+    || state.watched.find(m => m.id === id)
     || history_.map(h => h.movie).find(m => m.id === id)
     || (sheetMovie && sheetMovie.related && sheetMovie.related.find(m => m.id === id));
 }
 
 /* ============ Слои (шторки) + кнопка «Назад» ============ */
 let layerPushed = false;
+let pendingBack = 0;
 let sheetTimer = null, filtersTimer = null;
 
 function pushLayer() {
   if (layerPushed) return;
   try { history.pushState({ layer: 1 }, ""); layerPushed = true; } catch (e) {}
 }
+// Шторка закрывается сразу, а history.back() вызывается «вслепую» и его popstate игнорируется.
+// Раньше быстрое закрыть → открыть приводило к тому, что запоздавший popstate закрывал уже новую шторку.
 function closeLayer() {
-  if (layerPushed) { layerPushed = false; try { history.back(); return; } catch (e) {} }
   hideLayers();
+  if (layerPushed) {
+    layerPushed = false;
+    pendingBack++;
+    try { history.back(); } catch (e) { pendingBack--; }
+  }
 }
 function hideLayers() { closeSheetUI(); closeFiltersUI(); }
-window.addEventListener("popstate", () => { layerPushed = false; hideLayers(); });
+window.addEventListener("popstate", () => {
+  if (pendingBack > 0) { pendingBack--; return; }
+  layerPushed = false;
+  hideLayers();
+});
+
+// Жёстко убиваем YouTube-плеер: iframe с видео — самая тяжёлая часть шторки,
+// и если его не удалять из DOM сразу, iOS копит память и убивает вкладку.
+function killPlayer() {
+  const frame = document.querySelector("#overlay iframe");
+  if (!frame) return;
+  try { frame.src = "about:blank"; } catch (e) {}
+  frame.remove();
+}
 
 function closeSheetUI() {
   const o = $("#overlay");
   if (o.hidden) return;
   sheetMovie = null;
-  const frame = o.querySelector("iframe");
-  if (frame) frame.src = "about:blank";
+  killPlayer();
   o.classList.add("closing");
   const sheet = $("#sheet-element");
   if (sheet) sheet.classList.add("dismissing");
@@ -821,15 +1020,35 @@ function playerHtml(key) {
   return `<iframe src="https://www.youtube-nocookie.com/embed/${key}?autoplay=1&rel=0&playsinline=1${mute}" title="Трейлер"
     allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
 }
+function showTrailer(key) {
+  const mm = $("#sheet-media");
+  if (!mm) return;
+  if (TRAILER_AUTOPLAY) { mm.innerHTML = playerHtml(key); return; }
+  const sp = mm.querySelector(".spinner"); if (sp) sp.remove();
+  mm.insertAdjacentHTML("beforeend", `<button class="play-btn" data-play="${esc(key)}" aria-label="Смотреть трейлер">${ICON_PLAY}</button>`);
+}
+
+const toggleLabel = m => isLiked(m.id) ? "Убрать из вечера" : isWatched(m.id) ? "Убрать из просмотренных" : "В мой вечер";
+const watchedInner = m => isWatched(m.id) ? `${ICON_CHECK}Просмотрено · вернуть в вечер` : `${ICON_CHECK}Отметить просмотренным`;
+
 // Нижняя панель действий — внизу экрана, в зоне большого пальца
 function actionsHtml(m) {
-  const text = isLiked(m.id) ? "Убрать из вечера" : "В мой вечер";
   return `<button class="btn icon" data-close aria-label="Закрыть">${ICON_CLOSE}</button>
-    ${watchButton(m, "primary")}<button class="btn" data-toggle="${m.id}"><span class="btn-label fade-in">${text}</span></button>`;
+    ${watchButton(m, "primary")}<button class="btn" data-toggle="${m.id}"><span class="btn-label fade-in">${toggleLabel(m)}</span></button>`;
+}
+
+// Обновляет кнопки открытой шторки после любого изменения списков
+function syncSheetButtons() {
+  if (!sheetMovie) return;
+  const label = document.querySelector("#sheet-actions [data-toggle] .btn-label");
+  if (label) label.textContent = toggleLabel(sheetMovie);
+  const w = $("#sheet-watched");
+  if (w) { w.innerHTML = watchedInner(sheetMovie); w.classList.toggle("on", isWatched(sheetMovie.id)); }
 }
 
 function openSheet(m, focusSrc) {
   hideToast();
+  killPlayer(); // если открываем «похожий фильм» поверх другой шторки
   const o = $("#overlay");
   clearTimeout(sheetTimer);
   sheetMovie = Object.assign({}, m);
@@ -846,6 +1065,7 @@ function openSheet(m, focusSrc) {
       <div class="tags" id="sheet-tags"></div>
       <p id="sheet-overview"></p>
       <dl class="facts" id="sheet-facts"></dl>
+      <button class="btn watched-btn ${isWatched(id) ? "on" : ""}" id="sheet-watched" data-watched>${watchedInner(m)}</button>
       <div class="src">
         <label for="src-input">Ссылка на ваш файл с фильмом</label>
         <div class="src-row"><input id="src-input" type="url" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="https://… (ваш сервер или Google Drive)" value="${esc(url)}"><button class="btn" id="src-save">Сохранить</button></div>
@@ -868,7 +1088,7 @@ function openSheet(m, focusSrc) {
     sheetMovie = Object.assign(sheetMovie, d);
     fillSheetInfo(sheetMovie);
 
-    const stored = state.liked.find(x => x.id === id);
+    const stored = findStored(id);
     if (stored && (!stored.runtime || !stored.genres.length)) {
       if (d.runtime) stored.runtime = d.runtime;
       if (d.genres.length) stored.genres = d.genres;
@@ -879,8 +1099,7 @@ function openSheet(m, focusSrc) {
     if (media) {
       if (d.trailerKey) setTimeout(() => {
         if (!sheetMovie || sheetMovie.id !== id) return;
-        const mm = $("#sheet-media");
-        if (mm) mm.innerHTML = playerHtml(d.trailerKey);
+        showTrailer(d.trailerKey);
       }, 450);
       else {
         const sp = media.querySelector(".spinner"); if (sp) sp.remove();
@@ -912,7 +1131,7 @@ function renderRelated(related) {
   sec.innerHTML = `<div class="related-title">Похожие фильмы</div>
     <div class="related-scroll">${related.slice(0, 8).map(r => `
       <div class="related-card" data-related-id="${r.id}">
-        <div class="related-poster">${r.poster ? `<img src="${TMDB.img(r.poster, "w342")}" alt="${esc(r.title)}" loading="lazy" decoding="async">` : ""}</div>
+        <div class="related-poster">${r.poster ? `<img src="${TMDB.img(r.poster, "w185")}" alt="${esc(r.title)}" loading="lazy" decoding="async">` : ""}</div>
         <div class="related-name">${esc(r.title)}</div>
       </div>`).join("")}</div>`;
   anim(sec, FX_IN);
@@ -934,14 +1153,16 @@ function toggleLike(m) {
   if (!m || toggling) return;
   toggling = true;
   const wasLiked = isLiked(m.id);
+  const wasWatched = isWatched(m.id);
   const btn = document.querySelector("#sheet-actions [data-toggle]");
   const label = btn ? btn.querySelector(".btn-label") : null;
+  const removing = wasLiked || wasWatched;
 
   if (btn) {
     btn.classList.remove("pop-stroke-red", "pop-stroke-green");
     void btn.offsetWidth;
-    btn.classList.add(wasLiked ? "pop-stroke-red" : "pop-stroke-green");
-    burst(btn, wasLiked ? "var(--nope)" : "var(--user-accent)", 10);
+    btn.classList.add(removing ? "pop-stroke-red" : "pop-stroke-green");
+    burst(btn, removing ? "var(--nope)" : "var(--user-accent)", 10);
     haptic();
     if (label) { label.classList.remove("fade-in"); label.classList.add("fade-out"); }
   }
@@ -949,6 +1170,8 @@ function toggleLike(m) {
   setTimeout(() => {
     if (wasLiked) {
       state.liked = state.liked.filter(x => x.id !== m.id);
+    } else if (wasWatched) {
+      state.watched = state.watched.filter(x => x.id !== m.id);
     } else {
       state.liked.push(snap(m));
       passed.delete(m.id);
@@ -958,9 +1181,8 @@ function toggleLike(m) {
     save();
     renderAll();
     if (sheetMovie && sheetMovie.id === m.id) {
-      const text = isLiked(m.id) ? "Убрать из вечера" : "В мой вечер";
       if (label && label.isConnected) {
-        label.textContent = text;
+        label.textContent = toggleLabel(m);
         label.classList.remove("fade-out");
         label.classList.add("fade-in");
       } else $("#sheet-actions").innerHTML = actionsHtml(sheetMovie);
@@ -1016,6 +1238,7 @@ const tutorialSteps = [
   { title: "Как свайпать", text: "Свайп вправо добавляет фильм в «Мой вечер», свайп влево — пропускает его. Нажмите на карточку, чтобы посмотреть трейлер." },
   { title: "Жанры и фильтры", text: "Настраивайте мультивыбор жанров через кнопку «Фильтры» в правом верхнем углу." },
   { title: "Мой вечер", text: "Здесь хранятся выбранные фильмы по категориям. Смахните фильм влево, чтобы удалить его." },
+  { title: "Просмотренные", text: "Посмотрели фильм — отметьте его галочкой или смахните вправо. Он переедет в отдельный список «Просмотрено» и больше не появится в свайпах. Нажали «Смотреть» — после возвращения в приложение мы сами предложим отметить фильм." },
 ];
 let tutorialStep = 0;
 
@@ -1037,12 +1260,18 @@ function showTutorialStep(step) {
 
 /* ============ События ============ */
 document.addEventListener("click", e => {
+  // Ссылка «Смотреть»: запоминаем фильм, чтобы по возвращении предложить отметить его просмотренным
+  const link = e.target.closest("a[data-watch]");
+  if (link) { rememberPending(+link.dataset.watch); return; }
+
   const t = e.target.closest("button, [data-open], [data-related-id], .backdrop");
   if (!t) return;
 
   switch (t.id) {
     case "tab-swipe": return setTab("swipe");
     case "tab-list": return setTab("list");
+    case "seg-queue": return setListMode("queue");
+    case "seg-watched": return setListMode("watched");
     case "btn-like": return swipeButton(1);
     case "btn-nope": return swipeButton(-1);
     case "btn-undo": return undo();
@@ -1057,6 +1286,18 @@ document.addEventListener("click", e => {
   }
 
   if ("undo" in t.dataset) { const f = toastUndoFn; hideToast(); if (f) f(); return; }
+  if (t.dataset.mark) {
+    const id = +t.dataset.mark;
+    const c = document.querySelector(`#list .row-container[data-id="${id}"]`);
+    if (c) removeRow(c.querySelector(".row"), c, c.closest(".category-section"), 0, 1, () => commitRow(1, id));
+    return;
+  }
+  if ("watched" in t.dataset) {
+    const m = sheetMovie;
+    if (m) { if (isWatched(m.id)) unmarkWatched(m.id); else markWatched(m); }
+    return;
+  }
+  if (t.dataset.play) { const mm = $("#sheet-media"); if (mm) mm.innerHTML = playerHtml(t.dataset.play); return; }
   if (t.dataset.open) { const m = findMovie(+t.dataset.open); if (m) openSheet(m); return; }
   if (t.dataset.relatedId) {
     const id = +t.dataset.relatedId, m = findMovie(id);
@@ -1112,10 +1353,13 @@ function updateBadge() {
   b.hidden = state.liked.length === 0;
   if (state.liked.length > prevLiked) bump(b);
   prevLiked = state.liked.length;
+  $("#seg-queue-n").textContent = state.liked.length;
+  $("#seg-watched-n").textContent = state.watched.length;
 }
 let listDirty = false;
 function refreshList() {
   updateBadge();
+  syncSheetButtons();
   if ($("#view-list").hidden) listDirty = true; else { listDirty = false; renderList(); }
 }
 function renderAll(mode, undoDir) { renderSwipe(mode, undoDir); refreshList(); }
@@ -1140,6 +1384,7 @@ async function boot() {
   await splashDone;
   renderSwipe("init");
   checkTutorial();
+  checkPending();
 }
 
 function startApp() {

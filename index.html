@@ -53,6 +53,11 @@
     </section>
 
     <section class="view" id="view-list" hidden>
+      <div class="seg" id="seg" role="tablist">
+        <span class="seg-ind" id="seg-ind"></span>
+        <button class="seg-btn" role="tab" id="seg-queue" aria-selected="true">К просмотру <i id="seg-queue-n">0</i></button>
+        <button class="seg-btn" role="tab" id="seg-watched" aria-selected="false">Просмотрено <i id="seg-watched-n">0</i></button>
+      </div>
       <div class="list-wrap" id="list"></div>
     </section>
 
@@ -82,7 +87,7 @@
   <!-- Туториал -->
   <div class="tutorial-overlay" id="tutorial" hidden>
     <div class="tutorial-card" id="tutorial-card">
-      <div class="tutorial-step-indicator" id="tutorial-step-counter">Шаг 1 из 4</div>
+      <div class="tutorial-step-indicator" id="tutorial-step-counter">Шаг 1 из 5</div>
       <h3 id="tutorial-title">Добро пожаловать в Filmder!</h3>
       <p id="tutorial-text"></p>
       <div class="tutorial-actions">
