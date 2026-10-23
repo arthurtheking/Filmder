@@ -402,7 +402,7 @@ function hintRow(row) {
 
 function idleTick() {
   if (document.hidden || busy || performance.now() - lastInput < IDLE_MS) return;
-  if (!$("#overlay").hidden || !$("#filters-overlay").hidden || !$("#tutorial").hidden || $("#splash") || appStarted === false) return;
+  if (!$("#overlay").hidden || !$("#filters-overlay").hidden || (document.getElementById("wheel-overlay") && !document.getElementById("wheel-overlay").hidden) || !$("#tutorial").hidden || $("#splash") || appStarted === false) return;
   if (!$("#view-swipe").hidden) {
     const card = $("#stage .card:last-child");
     if (card && !card.style.transform.includes("translate3d")) { if (card._hint) card._hint.cancel(); hint(card, 0); }
@@ -822,7 +822,8 @@ function renderList() {
 
   const scroll = list.scrollTop;
   let html = `<div class="summary" style="--i:0"><b>${items.length} ${plural(items.length)}</b><span>${totalText}</span></div>`;
-  let idx = 1;
+  if (!watchedMode && items.length >= 2) html += `<button class="wheel-cta" id="btn-wheel" style="--i:1">${ICON_DICE}<span><b>Колесо на вечер</b><small>Не можете выбрать? Пусть решит случай</small></span></button>`;
+  let idx = 2;
 
   if (watchedMode) {
     html += `<div class="category-section">`;
@@ -984,6 +985,8 @@ function pushLayer() {
 // Шторка закрывается сразу, а history.back() вызывается «вслепую» и его popstate игнорируется.
 // Раньше быстрое закрыть → открыть приводило к тому, что запоздавший popstate закрывал уже новую шторку.
 function closeLayer() {
+  const w = document.getElementById("wheel-overlay"), ov = $("#overlay");
+  if (w && !w.hidden && !w.classList.contains("closing") && !ov.hidden && !ov.classList.contains("closing")) return closeSheetUI();
   hideLayers();
   if (layerPushed) {
     layerPushed = false;
@@ -991,7 +994,6 @@ function closeLayer() {
     try { history.back(); } catch (e) { pendingBack--; }
   }
 }
-function hideLayers() { closeSheetUI(); closeFiltersUI(); }
 window.addEventListener("popstate", () => {
   if (pendingBack > 0) { pendingBack--; return; }
   layerPushed = false;
@@ -1117,8 +1119,11 @@ const watchedInner = m => isWatched(m.id) ? `${ICON_CHECK}Просмотрено
 
 // Нижняя панель действий — внизу экрана, в зоне большого пальца
 function actionsHtml(m) {
+  const mid = sheetFromWheel
+    ? `<button class="btn" data-respin>${ICON_DICE}Крутить ещё</button>`
+    : `<button class="btn" data-toggle="${m.id}"><span class="btn-label fade-in">${toggleLabel(m)}</span></button>`;
   return `<button class="btn icon" data-close aria-label="Закрыть">${ICON_CLOSE}</button>
-    ${watchButton(m, "primary")}<button class="btn" data-toggle="${m.id}"><span class="btn-label fade-in">${toggleLabel(m)}</span></button>`;
+    ${watchButton(m, "primary")}${mid}`;
 }
 
 // Обновляет кнопки открытой шторки после любого изменения списков
@@ -1139,6 +1144,7 @@ function openSheet(m, focusSrc) {
   const id = m.id;
   const url = state.urls[id] || "";
 
+  sheetFromWheel = wheelNext; wheelNext = false;
   o.classList.remove("closing");
   o.style.opacity = "";
   o.innerHTML = `<div class="sheet movie-sheet" role="dialog" aria-modal="true" aria-label="${esc(m.title)}" id="sheet-element">
@@ -1441,6 +1447,244 @@ function refreshList() {
   if ($("#view-list").hidden) listDirty = true; else { listDirty = false; renderList(); }
 }
 function renderAll(mode, undoDir) { renderSwipe(mode, undoDir); refreshList(); }
+
+/* ============ Колесо на вечер ============ */
+// Вставить в app.js ПЕРЕД блоком «/* ============ Запуск ============ */»
+
+const ICON_DICE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r=".9" fill="currentColor"/><circle cx="15.5" cy="8.5" r=".9" fill="currentColor"/><circle cx="12" cy="12" r=".9" fill="currentColor"/><circle cx="8.5" cy="15.5" r=".9" fill="currentColor"/><circle cx="15.5" cy="15.5" r=".9" fill="currentColor"/></svg>`;
+const WHEEL_TIMES = [[0, "Любое время"], [90, "до 1,5 ч"], [120, "до 2 ч"], [150, "до 2,5 ч"]];
+
+let wheelNext = false;       // «следующая шторка открыта из колеса»
+let sheetFromWheel = false;  // текущая шторка открыта из колеса (меняет нижнюю панель)
+const wheelOpts = { maxRt: 0, genre: "" };
+const wheelRejected = new Set(); // отклонённые в этой сессии колеса («Крутить ещё»)
+let wheelCurrent = null;     // фильм в центре окна
+let wheelWon = false;
+let wheelSpinning = false;
+let wheelRaf = 0, wheelOpenTimer = 0, wheelCloseTimer = 0;
+
+const wheelEl = () => document.getElementById("wheel-overlay");
+
+function wheelPool() {
+  const { maxRt, genre } = wheelOpts;
+  return state.liked.filter(m =>
+    (!maxRt || (m.runtime && m.runtime <= maxRt)) &&
+    (!genre || (m.genres || []).includes(genre) || m.category === genre));
+}
+
+function wheelCellHtml(m) {
+  const src = m.poster ? TMDB.img(m.poster, "w154") : null;
+  const meta = [m.year, dur(m.runtime), `★ ${(m.rating || 0).toFixed(1)}`].filter(Boolean).join(" · ");
+  return `<div class="wcell"><div class="wthumb">${src ? `<img src="${src}" alt="" draggable="false" decoding="async">` : ""}</div>
+    <div class="wtext"><b>${esc(m.title)}</b><span>${esc(meta)}</span></div></div>`;
+}
+
+function openWheel() {
+  if (!state.liked.length) return;
+  let o = wheelEl();
+  if (!o) {
+    o = document.createElement("div");
+    o.className = "backdrop wheel-backdrop";
+    o.id = "wheel-overlay";
+    o.hidden = true;
+    o.addEventListener("click", wheelClick);
+    document.body.appendChild(o);
+  }
+  wheelRejected.clear();
+  wheelCurrent = null; wheelWon = false; wheelSpinning = false;
+  wheelOpts.maxRt = 0; wheelOpts.genre = "";
+  hideToast();
+  clearTimeout(wheelCloseTimer);
+  o.innerHTML = `<div class="sheet wheel-sheet" id="wheel-sheet" role="dialog" aria-modal="true" aria-label="Колесо на вечер">
+    <div class="grabber"></div>
+    <div class="sheet-head"><h2>Колесо на вечер</h2><button class="btn ghost small" data-close>Закрыть</button></div>
+    <div class="wheel-group"><div class="wheel-label">Сколько есть времени</div><div class="wheel-chips" id="wheel-times"></div></div>
+    <div class="wheel-group"><div class="wheel-label">Настроение</div><div class="wheel-chips" id="wheel-genres"></div></div>
+    <div class="wheel-window"><div class="wheel-strip" id="wheel-strip"></div><div class="wheel-frame" id="wheel-frame"></div></div>
+    <div class="wheel-status" id="wheel-status"></div>
+    <div class="wheel-actions">
+      <button class="btn" id="wheel-open" hidden>Открыть</button>
+      <button class="btn primary" id="wheel-spin">${ICON_DICE}Крутить</button>
+    </div></div>`;
+  o.classList.remove("closing");
+  o.style.opacity = "";
+  o.hidden = false;
+  pushLayer();
+  bindSheetDrag($("#wheel-sheet"), o);
+  wheelRender();
+}
+
+function closeWheelUI() {
+  const o = wheelEl();
+  if (!o || o.hidden) return;
+  cancelAnimationFrame(wheelRaf);
+  clearTimeout(wheelOpenTimer);
+  wheelSpinning = false;
+  o.classList.add("closing");
+  const s = $("#wheel-sheet");
+  if (s) s.classList.add("dismissing");
+  clearTimeout(wheelCloseTimer);
+  wheelCloseTimer = setTimeout(() => { o.hidden = true; o.classList.remove("closing"); o.innerHTML = ""; o.style.opacity = ""; }, 340);
+}
+
+function wheelClick(e) {
+  const b = e.target.closest("button");
+  if (!b || wheelSpinning) return;
+  if (b.dataset.wtime !== undefined) { wheelOpts.maxRt = +b.dataset.wtime; wheelWon = false; wheelRender(); }
+  else if (b.dataset.wgenre !== undefined) { wheelOpts.genre = b.dataset.wgenre; wheelWon = false; wheelRender(); }
+  else if (b.id === "wheel-spin") wheelSpin();
+  else if (b.id === "wheel-open") openWheelPick();
+}
+
+// «Крутить ещё» в шторке фильма
+document.addEventListener("click", e => {
+  if (e.target.closest("[data-respin]")) { closeSheetUI(); wheelSpin(); }
+});
+// Кнопка-вход в списке «К просмотру»
+$("#list").addEventListener("click", e => { if (e.target.closest("#btn-wheel")) openWheel(); });
+
+function wheelRender() {
+  if (!$("#wheel-sheet")) return;
+  const cnt = {};
+  state.liked.forEach(m => (m.genres || []).forEach(g => (cnt[g] = (cnt[g] || 0) + 1)));
+  const gl = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).slice(0, 8);
+  if (wheelOpts.genre && !gl.includes(wheelOpts.genre)) wheelOpts.genre = "";
+
+  $("#wheel-times").innerHTML = WHEEL_TIMES.map(([v, l]) =>
+    `<button class="wchip" data-wtime="${v}" aria-pressed="${wheelOpts.maxRt === v}">${l}</button>`).join("");
+  $("#wheel-genres").innerHTML =
+    `<button class="wchip" data-wgenre="" aria-pressed="${!wheelOpts.genre}">Любое</button>` +
+    gl.map(g => `<button class="wchip" data-wgenre="${esc(g)}" aria-pressed="${wheelOpts.genre === g}">${esc(g)}</button>`).join("");
+
+  wheelIdle(wheelPool());
+  wheelUpdateUi();
+}
+
+function wheelIdle(pool) {
+  const strip = $("#wheel-strip"), frame = $("#wheel-frame");
+  strip.style.transform = "none";
+  frame.classList.remove("won");
+  if (!pool.length) {
+    strip.innerHTML = `<div class="wheel-none">Нет фильмов под эти условия</div>`;
+    frame.hidden = true;
+    return;
+  }
+  frame.hidden = false;
+  const r = () => pool[Math.floor(Math.random() * pool.length)];
+  if (!wheelCurrent || !pool.some(m => m.id === wheelCurrent.id)) wheelCurrent = r();
+  strip.innerHTML = [r(), wheelCurrent, r()].map(wheelCellHtml).join("");
+}
+
+function wheelUpdateUi() {
+  const sheet = $("#wheel-sheet");
+  if (!sheet) return;
+  const pool = wheelPool();
+  let txt = pool.length ? `Подходит: ${pool.length} ${plural(pool.length)}` : "Попробуйте другие условия";
+  const rej = pool.filter(m => wheelRejected.has(m.id)).length;
+  if (rej) txt += ` · отклонено: ${rej}`;
+  const unk = wheelOpts.maxRt ? state.liked.filter(m => !m.runtime).length : 0;
+  if (unk) txt += ` · ${unk} без длительности не учтены`;
+  $("#wheel-status").textContent = txt;
+  sheet.classList.toggle("spinning", wheelSpinning);
+  const spin = $("#wheel-spin");
+  spin.disabled = wheelSpinning || !pool.length;
+  spin.innerHTML = `${ICON_DICE}${wheelWon ? "Крутить ещё" : "Крутить"}`;
+  $("#wheel-open").hidden = !(wheelWon && wheelCurrent);
+}
+
+function wheelSeq(pool, first, winner, W) {
+  const seq = [];
+  let prev = null;
+  for (let i = 0; i < W + 2; i++) {
+    let m;
+    if (i === W) m = winner;
+    else if (i === 1 && first && pool.some(x => x.id === first.id)) m = first;
+    else {
+      let t = 0;
+      do { m = pool[Math.floor(Math.random() * pool.length)]; }
+      while (pool.length > 1 && (m.id === prev || (i >= W - 2 && m.id === winner.id)) && ++t < 12);
+    }
+    prev = m.id;
+    seq.push(m);
+  }
+  return seq;
+}
+
+function wheelSpin() {
+  if (wheelSpinning) return;
+  const pool = wheelPool();
+  if (!pool.length) return;
+  clearTimeout(wheelOpenTimer);
+  if (wheelWon && wheelCurrent) wheelRejected.add(wheelCurrent.id); // «Крутить ещё» = прошлый вариант отклонён
+
+  let cands = pool.filter(m => !wheelRejected.has(m.id));
+  if (!cands.length) { // всё отклонено — начинаем заново, но не повторяем только что отклонённый
+    const last = wheelCurrent && wheelCurrent.id;
+    wheelRejected.clear();
+    cands = pool.length > 1 ? pool.filter(m => m.id !== last) : pool;
+  }
+  const winner = cands[Math.floor(Math.random() * cands.length)];
+  const W = 22 + Math.floor(Math.random() * 6);
+  const seq = wheelSeq(pool, wheelCurrent, winner, W);
+
+  const strip = $("#wheel-strip");
+  strip.innerHTML = seq.map(wheelCellHtml).join("");
+  strip.style.transform = "translate3d(0,0,0)";
+  $("#wheel-frame").classList.remove("won");
+  wheelWon = false;
+  wheelSpinning = true;
+  wheelUpdateUi();
+
+  const cell = strip.firstElementChild.offsetHeight || 108;
+  const target = (W - 1) * cell; // победитель встаёт в центральный слот
+  if (RM()) {
+    strip.style.transform = `translate3d(0,${-target}px,0)`;
+    return wheelFinish(winner, W);
+  }
+
+  const total = 4200 + Math.random() * 800, t0 = performance.now();
+  let last = 0, lastTick = 0;
+  const step = now => {
+    const k = Math.min((now - t0) / total, 1);
+    const y = target * (1 - Math.pow(1 - k, 4)); // сильное замедление к концу
+    strip.style.transform = `translate3d(0,${-y.toFixed(1)}px,0)`;
+    const idx = Math.round(y / cell);
+    if (idx !== last) {
+      last = idx;
+      if (now - lastTick > 70) { lastTick = now; haptic(6); wheelTick(); } // «щелчок»
+    }
+    if (k < 1) wheelRaf = requestAnimationFrame(step);
+    else wheelFinish(winner, W);
+  };
+  wheelRaf = requestAnimationFrame(step);
+}
+
+function wheelTick() {
+  anim($("#wheel-frame"), [{ transform: "scale(1)" }, { transform: "scale(1.03)" }, { transform: "scale(1)" }], { duration: 90, easing: "ease-out" });
+}
+
+function wheelFinish(m, W) {
+  wheelSpinning = false;
+  wheelCurrent = m;
+  wheelWon = true;
+  const strip = $("#wheel-strip");
+  if (strip && strip.children[W]) strip.children[W].classList.add("win");
+  const frame = $("#wheel-frame");
+  if (frame) { frame.classList.add("won"); burst(frame, "var(--user-accent)", 14); }
+  haptic(25);
+  wheelUpdateUi();
+  wheelOpenTimer = setTimeout(openWheelPick, 900);
+}
+
+function openWheelPick() {
+  const o = wheelEl();
+  if (!wheelCurrent || !o || o.hidden) return;
+  const m = findMovie(wheelCurrent.id) || wheelCurrent;
+  wheelNext = true;
+  openSheet(m);
+}
+
+function hideLayers() { closeSheetUI(); closeFiltersUI(); closeWheelUI(); }
 
 /* ============ Запуск ============ */
 let appStarted = false;

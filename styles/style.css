@@ -365,3 +365,93 @@ html.theme-fade, html.theme-fade * { transition: background-color .45s var(--eas
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .spinner { animation-duration: 1.2s !important; animation-iteration-count: infinite !important; }
 }
+
+/* ---------- Колесо на вечер  ---------- */
+.btn[disabled] { opacity: .4; pointer-events: none; }
+
+.wheel-cta { flex: none; display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--user-accent); background: var(--surface); color: var(--fg); box-shadow: 0 4px 12px var(--card-shadow); transition: transform var(--t-base) var(--spring), background var(--t-fast); }
+.wheel-cta:active { transform: scale(.97); }
+.wheel-cta svg { flex: none; width: 36px; height: 36px; padding: 8px; border-radius: 12px; background: var(--user-accent); color: #fff; }
+.wheel-cta span { display: flex; flex-direction: column; min-width: 0; }
+.wheel-cta b { font-family: var(--font-display); font-weight: 500; font-size: 14px; }
+.wheel-cta small { color: var(--muted); font-size: 12px; }
+.list-wrap.enter .wheel-cta { animation: fx-in var(--t-base) var(--ease) backwards; animation-delay: calc(var(--i, 0) * 45ms); }
+
+/* Колесо лежит под шторкой фильма (у неё z-index 20) */
+.wheel-backdrop { z-index: 19; }
+.wheel-sheet { display: flex; flex-direction: column; gap: 14px; }
+.wheel-sheet .sheet-head { margin-bottom: 0; }
+.wheel-group { display: flex; flex-direction: column; gap: 8px; }
+.wheel-label { font-size: 12px; color: var(--muted); }
+.wheel-chips { display: flex; gap: 8px; overflow-x: auto; margin: 0 -20px; padding: 0 20px 2px; scrollbar-width: none; transition: opacity var(--t-fast); }
+.wheel-chips::-webkit-scrollbar { display: none; }
+.wheel-sheet.spinning .wheel-chips { opacity: .4; pointer-events: none; }
+.wchip { flex: none; padding: 7px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 13px; color: var(--muted); white-space: nowrap; transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast), transform var(--t-base) var(--spring); }
+.wchip:active { transform: scale(.94); }
+.wchip[aria-pressed="true"] { color: var(--fg); border-color: var(--user-accent); background: var(--surface-2); }
+
+/* Слот-автомат: три строки, в центре рамка-«указатель» */
+.wheel-window { --cell: 108px; position: relative; height: calc(var(--cell) * 3); overflow: hidden; border-radius: 18px; background: var(--bg); border: 1px solid var(--line); }
+.wheel-window::before, .wheel-window::after { content: ""; position: absolute; left: 0; right: 0; height: var(--cell); z-index: 2; pointer-events: none; }
+.wheel-window::before { top: 0; background: linear-gradient(var(--bg), transparent); }
+.wheel-window::after { bottom: 0; background: linear-gradient(transparent, var(--bg)); }
+.wheel-strip { will-change: transform; }
+.wcell { height: var(--cell); display: flex; align-items: center; gap: 14px; padding: 0 18px; }
+.wthumb { flex: none; width: 56px; height: 84px; border-radius: 8px; overflow: hidden; background: var(--surface-2); }
+.wthumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.wtext { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.wtext b { font-weight: 600; font-size: 15px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color var(--t-base) var(--ease); }
+.wtext span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wcell.win b { color: var(--user-accent); }
+.wheel-frame { position: absolute; left: 8px; right: 8px; top: var(--cell); height: var(--cell); border: 2px solid var(--user-accent); border-radius: 14px; z-index: 3; pointer-events: none; transition: box-shadow var(--t-slow) var(--ease); }
+.wheel-frame.won { box-shadow: 0 0 0 4px rgba(60, 187, 177, .18), 0 0 28px rgba(60, 187, 177, .35); }
+.wheel-none { height: calc(var(--cell) * 3); display: grid; place-items: center; color: var(--muted); font-size: 14px; text-align: center; padding: 0 24px; }
+
+.wheel-status { text-align: center; font-size: 13px; color: var(--muted); min-height: 19px; }
+.wheel-actions { display: flex; gap: 8px; }
+.wheel-actions .btn { flex: 1; min-height: 50px; font-size: 15px; }
+
+/* ---------- Фиксы: переполнение текста и шторки ---------- */
+.btn { max-width: 100%; text-align: center; }
+.sheet-actions .btn { white-space: normal; line-height: 1.15; font-size: 14px; padding: 8px 10px; }
+.sheet-actions .btn:first-child:not(.icon) { flex-grow: 1; }
+.sheet-actions .btn svg { flex: none; }
+.tundo { white-space: nowrap; }
+.no-trailer { flex-wrap: wrap; }
+.no-trailer span { flex: 1 1 120px; min-width: 0; }
+.no-trailer .btn { flex: none; white-space: nowrap; }
+.facts dd { min-width: 0; overflow-wrap: anywhere; }
+.sheet-title h2, .info .t, .row-title, .wtext b, .related-name { overflow-wrap: anywhere; }
+.sheet-title .o, .row-meta, .info .o { overflow-wrap: anywhere; }
+.row-main { overflow: hidden; }
+.tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-btn, .seg-btn, .tab, .wchip, .badge { white-space: nowrap; }
+.seg-btn, .tab { min-width: 0; }
+.seg-btn > i, .tab .badge { flex: none; }
+.filter-item span { overflow-wrap: anywhere; min-width: 0; }
+.list-category-title { overflow-wrap: anywhere; }
+.summary b, .summary span, .toast .tmain small { overflow-wrap: anywhere; }
+.poster { overflow: hidden; }
+.src small, .hint-text, .empty p, .empty h2 { overflow-wrap: anywhere; }
+
+/* Шторки: учитываем динамическую высоту экрана, содержимое не сжимается и не «ломается» */
+.sheet { max-height: 92%; }
+@supports (height: 100dvh) { .sheet { max-height: min(92%, 92dvh); } }
+.wheel-sheet > * { flex: none; }
+.sheet-head h2 { min-width: 0; overflow-wrap: anywhere; }
+.sheet-head .btn { flex: none; }
+.sheet-foot { position: sticky; bottom: 0; background: var(--surface); padding-top: 12px; margin-top: 8px; }
+.filter-sheet { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+
+@media (max-height: 700px) {
+  .wheel-window { --cell: 80px; }
+  .wthumb { width: 44px; height: 66px; }
+  .wheel-label { display: none; }
+  .wheel-sheet { gap: 10px; }
+  .wcell { gap: 12px; }
+  .wtext b { font-size: 14px; }
+}
+@media (max-width: 340px) {
+  .wheel-cta small { display: none; }
+  .sheet-actions .btn { font-size: 13px; padding: 8px 6px; }
+}
