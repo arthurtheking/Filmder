@@ -849,7 +849,7 @@ function renderList() {
 
   const scroll = list.scrollTop;
   let html = `<div class="summary" style="--i:0"><b>${items.length} ${plural(items.length)}</b><span>${totalText}</span></div>`;
-  if (!watchedMode && items.length >= 2) html += `<button class="wheel-cta" id="btn-wheel" style="--i:1">${ICON_DICE}<span><b>Колесо на вечер</b><small>Не можете выбрать? Пусть решит случай</small></span></button>`;
+if (!watchedMode && items.length >= 2) html += wheelCtaHtml(items, 1);
   let idx = 2;
 
   if (watchedMode) {
@@ -1501,33 +1501,54 @@ function wheelPool() {
     (!genre || (m.genres || []).includes(genre) || m.category === genre));
 }
 
-/* ---------- Кинобарабан: 3D-карусель постеров ---------- */
+/* ---------- Карусель на весь экран (2D) ---------- */
+const WHEEL_BASE = "#07080c";   // фон экрана; им же красим safe-зоны
 const WHEEL_COLORS = ["#2fb3a8", "#e8683f", "#7c4dff", "#e8a317", "#d63384", "#2f6fe0", "#2bb673", "#d9413d", "#12a8c9", "#7fb71a", "#c05bd6", "#e07b28"];
-const WHEEL_MAX = 12;   // больше постеров на барабане не помещается — берём случайную выборку
-const WHEEL_BULBS = 13;
+const WHEEL_MAX = 24;           // больше постеров в карусели не держим — берём случайную выборку
 const ICON_SPIN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>`;
 
-let wheelSegs = [];      // фильмы на барабане
-let wheelCards = [];     // их DOM-карточки
-let wheelR = 200;        // радиус барабана, px
-let wheelRot = 0;        // поворот барабана вокруг вертикальной оси, градусы
+let wheelSegs = [];      // фильмы в карусели
+let wheelEls = [];       // карточки
+let wheelBgs = [];       // размытые фоны под каждым постером
+let wheelDots = [];      // точки-индикаторы
+let wheelPos = 0;        // позиция в «карточках»: карточка i по центру, когда wheelPos ≡ i (mod n)
+let wheelPitch = 140;    // шаг между центрами карточек, px
 let wheelWinIdx = -1;
 let wheelLastIdx = -1;
 let wheelLastTick = 0;
 let wheelDragging = false;
 let wheelSwallow = false; // после «зажать и отпустить» глушим следующий click
-let wheelIdleRaf = 0;
 
 const mod = (a, n) => ((a % n) + n) % n;
+const easeOut = (t, p = 3) => 1 - Math.pow(1 - t, p);
 function shuffleArr(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
 }
-const wheelSegDeg = () => 360 / (wheelSegs.length || 1);
-// Постер i стоит на угле i·seg, значит перед зрителем тот, чей угол ближе всего к -rot
-const wheelIdxAt = rot => (wheelSegs.length ? Math.round(mod(-rot, 360) / wheelSegDeg()) % wheelSegs.length : 0);
+const wheelIdxAt = pos => (wheelSegs.length ? mod(Math.round(pos), wheelSegs.length) : 0);
 
+/* ---------- Кнопка-вход в «Мой вечер» ---------- */
+let ctaKey = "", ctaPicks = [];
+function wheelCtaHtml(items, i) {
+  // Веер постеров стабилен, пока не изменился состав списка (иначе картинки мигали бы при каждой перерисовке)
+  const key = items.map(m => m.id).join(",");
+  if (key !== ctaKey) { ctaKey = key; ctaPicks = shuffleArr(items.filter(m => m.poster)).slice(0, 3); }
+  const c = ctaPicks.length, mid = (c - 1) / 2;
+  const fan = ctaPicks.map((m, k) => ({ m, k }))
+    .sort((a, b) => Math.abs(b.k - mid) - Math.abs(a.k - mid)) // центральный — сверху
+    .map(({ m, k }) => `<i style="--k:${k};--c:${c};background-image:url('${TMDB.img(m.poster, "w185")}')"></i>`).join("");
+  return `<button class="wheel-cta" id="btn-wheel" style="--i:${i}">
+    <span class="cta-fan" aria-hidden="true">${fan}</span>
+    <span class="cta-text">
+      <b>Что смотрим сегодня?</b>
+      <small>Случайный фильм из ${items.length}</small>
+      <span class="cta-go">${ICON_DICE}Выбрать за меня</span>
+    </span>
+  </button>`;
+}
+
+/* ---------- Открытие / закрытие ---------- */
 function openWheel() {
   if (!state.liked.length) return;
   let o = wheelEl();
@@ -1539,56 +1560,48 @@ function openWheel() {
     o.addEventListener("click", wheelClick);
     document.body.appendChild(o);
   }
+  cancelAnimationFrame(wheelRaf);
   wheelRejected.clear();
-  wheelCurrent = null; wheelWon = false; wheelSpinning = false; wheelWinIdx = -1; wheelLastIdx = -1; wheelRot = 0; wheelDragging = false;
+  wheelCurrent = null; wheelWon = false; wheelSpinning = false; wheelWinIdx = -1; wheelLastIdx = -1; wheelPos = 0; wheelDragging = false;
   wheelOpts.maxRt = 0; wheelOpts.genre = "";
   hideToast();
   clearTimeout(wheelCloseTimer);
-  const bulbs = "<i></i>".repeat(WHEEL_BULBS);
-  o.innerHTML = `<div class="sheet wheel-sheet" id="wheel-sheet" role="dialog" aria-modal="true" aria-label="Колесо на вечер">
-    <div class="grabber"></div>
-    <div class="sheet-head"><h2>Колесо на вечер</h2><button class="btn ghost small" data-close>Закрыть</button></div>
-    <div class="wheel-group"><div class="wheel-label">Сколько есть времени</div><div class="wheel-chips" id="wheel-times"></div></div>
-    <div class="wheel-group"><div class="wheel-label">Настроение</div><div class="wheel-chips" id="wheel-genres"></div></div>
-    <div class="reel" id="wheel-stage">
-      <div class="reel-bulbs top">${bulbs}</div>
-      <div class="reel-view">
-        <div class="reel-spot"></div>
-        <div class="reel-floor"></div>
-        <div class="reel-drum" id="wheel-disc"></div>
-        <div class="reel-ptr t" id="reel-ptr-t"></div>
-        <div class="reel-ptr b" id="reel-ptr-b"></div>
-      </div>
-      <div class="reel-bulbs bottom">${bulbs}</div>
+  o.innerHTML = `<div class="wheel-fs" id="wheel-fs" role="dialog" aria-modal="true" aria-label="Что смотрим сегодня">
+    <div class="wf-bgs" id="wf-bgs" aria-hidden="true"></div>
+    <div class="wf-top">
+      <button class="wf-x" data-close aria-label="Закрыть">${ICON_CLOSE}</button>
+      <h2 class="wf-title">Что смотрим сегодня?</h2>
+      <span class="wf-sp"></span>
     </div>
+    <div class="wf-filters">
+      <div class="wheel-chips" id="wheel-times"></div>
+      <div class="wheel-chips" id="wheel-genres"></div>
+    </div>
+    <div class="car" id="wheel-stage"><div class="car-track" id="wheel-track"></div></div>
+    <div class="wf-dots" id="wf-dots" aria-hidden="true"></div>
     <div class="wheel-now" id="wheel-now"></div>
     <div class="wheel-status" id="wheel-status"></div>
     <div class="wheel-actions">
-      <button class="btn" id="wheel-open" hidden>Открыть</button>
+      <button class="btn glass" id="wheel-open" hidden>Подробнее</button>
       <button class="btn primary" id="wheel-spin"></button>
     </div></div>`;
   o.classList.remove("closing");
   o.style.opacity = "";
   o.hidden = false;
   pushLayer();
-  bindSheetDrag($("#wheel-sheet"), o);
+  revealBarsOn(WHEEL_BASE);
   bindWheelStage();
   bindWheelCharge();
-  wheelRender();
-  cancelAnimationFrame(wheelIdleRaf);
-  wheelIdleLoop(performance.now());
+  wheelRender(true);
 }
 
 function closeWheelUI() {
   const o = wheelEl();
   if (!o || o.hidden) return;
   cancelAnimationFrame(wheelRaf);
-  cancelAnimationFrame(wheelIdleRaf);
   clearTimeout(wheelOpenTimer);
-  wheelSpinning = false;
+  wheelSpinning = false; wheelDragging = false;
   o.classList.add("closing");
-  const s = $("#wheel-sheet");
-  if (s) s.classList.add("dismissing");
   clearTimeout(wheelCloseTimer);
   wheelCloseTimer = setTimeout(() => { o.hidden = true; o.classList.remove("closing"); o.innerHTML = ""; o.style.opacity = ""; revealBarsOff(); }, 340);
 }
@@ -1612,9 +1625,11 @@ document.addEventListener("click", e => {
 });
 // Кнопка-вход в списке «К просмотру»
 $("#list").addEventListener("click", e => { if (e.target.closest("#btn-wheel")) openWheel(); });
+addEventListener("resize", () => { if ($("#wheel-stage")) wheelLayout(); });
 
-function wheelRender() {
-  if (!$("#wheel-sheet")) return;
+/* ---------- Содержимое и фильтры ---------- */
+function wheelRender(intro) {
+  if (!$("#wheel-fs")) return;
   const cnt = {};
   state.liked.forEach(m => (m.genres || []).forEach(g => (cnt[g] = (cnt[g] || 0) + 1)));
   const gl = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).slice(0, 8);
@@ -1623,15 +1638,24 @@ function wheelRender() {
   $("#wheel-times").innerHTML = WHEEL_TIMES.map(([v, l]) =>
     `<button class="wchip" data-wtime="${v}" aria-pressed="${wheelOpts.maxRt === v}">${l}</button>`).join("");
   $("#wheel-genres").innerHTML =
-    `<button class="wchip" data-wgenre="" aria-pressed="${!wheelOpts.genre}">Любое</button>` +
+    `<button class="wchip" data-wgenre="" aria-pressed="${!wheelOpts.genre}">Любой жанр</button>` +
     gl.map(g => `<button class="wchip" data-wgenre="${esc(g)}" aria-pressed="${wheelOpts.genre === g}">${esc(g)}</button>`).join("");
 
+  cancelAnimationFrame(wheelRaf);
+  clearTimeout(wheelOpenTimer);
   wheelCurrent = null; wheelWinIdx = -1;
   wheelBuildCards();
   wheelUpdateUi();
+
+  // Появление: карусель «заезжает» слева и мягко тормозит на первом постере
+  if (intro && !RM() && wheelSegs.length > 1) {
+    wheelPos = -2.8;
+    wheelApply(false);
+    wheelTween(0, 1100, t => easeOut(t, 3.2));
+  }
 }
 
-// Набор постеров: весь пул, если он влезает, иначе случайные 12 из ещё не отклонённых
+// Набор постеров: весь пул, если он влезает, иначе случайная выборка из ещё не отклонённых
 function wheelBuildSegs() {
   const pool = wheelPool();
   let cands = pool.filter(m => !wheelRejected.has(m.id));
@@ -1641,28 +1665,46 @@ function wheelBuildSegs() {
 
 function wheelBuildCards() {
   wheelBuildSegs();
-  const drum = $("#wheel-disc");
-  if (!drum) return;
-  const n = wheelSegs.length;
-  drum.innerHTML = wheelSegs.map((m, i) => {
+  const track = $("#wheel-track"), bgs = $("#wf-bgs"), dots = $("#wf-dots");
+  if (!track) return;
+  track.innerHTML = wheelSegs.map((m, i) => {
     const src = m.poster ? TMDB.img(m.poster, "w342") : null;
-    return `<div class="rc" style="--i:${i}"><div class="rc-face">
-      ${src ? `<img src="${src}" alt="" draggable="false" decoding="async">` : `<span class="rc-ph">${esc((m.title || "?").charAt(0).toUpperCase())}</span>`}
-      <span class="rc-shade"></span><span class="rc-out">✕</span></div></div>`;
+    return `<div class="cc" data-i="${i}"><div class="cc-face">
+      ${src ? `<img src="${src}" alt="" draggable="false" decoding="async">` : `<span class="cc-ph">${esc((m.title || "?").charAt(0).toUpperCase())}</span>`}
+      <span class="cc-shade"></span><span class="cc-out">✕</span></div></div>`;
   }).join("");
-  wheelCards = [...drum.children];
-  const cw = (wheelCards[0] && wheelCards[0].offsetWidth) || 110;
-  wheelR = n <= 1 ? 0 : Math.max(cw * (n <= 4 ? 0.9 : 0.55), (cw / 2) / Math.tan(Math.PI / n) * 1.12);
-  drum.style.setProperty("--r", wheelR.toFixed(1) + "px");
-  drum.style.setProperty("--seg", wheelSegDeg().toFixed(3) + "deg");
-  wheelRot = 0;
+  wheelEls = [...track.children];
+  wheelEls.forEach(el => { el._shade = el.querySelector(".cc-shade"); });
+
+  // Размытый фон: по слою на постер, переключаем только прозрачность — без перерисовки блюра
+  bgs.innerHTML = wheelSegs.map(m => m.poster ? `<i style="background-image:url('${TMDB.img(m.poster, "w185")}')"></i>` : `<i></i>`).join("");
+  wheelBgs = [...bgs.children];
+  dots.innerHTML = wheelSegs.length > 1 ? wheelSegs.map(() => "<i></i>").join("") : "";
+  wheelDots = [...dots.children];
+
+  wheelPos = 0;
   wheelLastIdx = -1;
+  wheelLayout();
   wheelMarkRejected();
-  wheelApplyRot(false);
+  wheelApply(false);
+}
+
+function wheelLayout() {
+  const st = $("#wheel-stage");
+  if (!st) return;
+  const w = st.clientWidth, h = st.clientHeight;
+  const cw = Math.max(96, Math.min(w * 0.56, (h - 34) / 1.5, 300));
+  wheelPitch = cw * 0.76;
+  st.style.setProperty("--cw", cw.toFixed(1) + "px");
+  if (wheelSegs.length) wheelApply(false);
 }
 
 function wheelMarkRejected() {
-  wheelCards.forEach((c, i) => c.classList.toggle("out", !!wheelSegs[i] && wheelRejected.has(wheelSegs[i].id)));
+  wheelEls.forEach((c, i) => {
+    const out = !!wheelSegs[i] && wheelRejected.has(wheelSegs[i].id);
+    c.classList.toggle("out", out);
+    if (wheelDots[i]) wheelDots[i].classList.toggle("out", out);
+  });
 }
 
 function wheelSetNow(m, win) {
@@ -1674,61 +1716,77 @@ function wheelSetNow(m, win) {
   el.innerHTML = `<b>${esc(m.title)}</b><span>${esc(meta)}</span>`;
 }
 
-function wheelPtrFlick() {
-  anim($("#reel-ptr-t"), [{ transform: "translateY(0)" }, { transform: "translateY(5px)", offset: 0.4 }, { transform: "translateY(0)" }], { duration: 110, easing: "ease-out" });
-  anim($("#reel-ptr-b"), [{ transform: "translateY(0)" }, { transform: "translateY(-5px)", offset: 0.4 }, { transform: "translateY(0)" }], { duration: 110, easing: "ease-out" });
-}
-
-function wheelApplyRot(live) {
-  const drum = $("#wheel-disc");
+/* ---------- Раскладка карточек по позиции ---------- */
+function wheelApply(live) {
   const n = wheelSegs.length;
-  if (!drum || !n) return;
-  drum.style.transform = `rotateX(-7deg) translateZ(${(-wheelR).toFixed(1)}px) rotateY(${wheelRot.toFixed(2)}deg)`;
-  const seg = wheelSegDeg();
+  if (!n) return;
   for (let i = 0; i < n; i++) {
-    const ang = Math.abs(mod(i * seg + wheelRot + 180, 360) - 180);   // 0 — прямо перед зрителем
-    wheelCards[i].style.setProperty("--sh", Math.min(0.78, Math.max(0, (ang - 12) / 120)).toFixed(2));
+    const el = wheelEls[i];
+    let d = i - wheelPos;
+    d -= n * Math.round(d / n);                 // ближайшее смещение от центра, с зацикливанием
+    const a = Math.abs(d);
+    if (a > 3) { if (!el._h) { el.style.visibility = "hidden"; el._h = true; } continue; }
+    if (el._h) { el.style.visibility = ""; el._h = false; }
+    const s = 1 - 0.2 * Math.min(a, 1.6);
+    el.style.transform = `translate3d(${(d * wheelPitch).toFixed(1)}px,0,0) scale(${s.toFixed(3)})`;
+    el.style.opacity = Math.max(0, Math.min(1, 1.3 - 0.42 * a)).toFixed(2);
+    el.style.zIndex = 50 - Math.round(a * 10);
+    el._shade.style.opacity = Math.min(0.62, a * 0.34).toFixed(2);
   }
-  const k = wheelIdxAt(wheelRot);
+  const k = wheelIdxAt(wheelPos);
   if (k === wheelLastIdx) return;
   wheelLastIdx = k;
-  wheelCards.forEach((c, i) => c.classList.toggle("front", i === k));
-  const st = $("#wheel-stage");
-  if (st) st.style.setProperty("--glow", WHEEL_COLORS[k % WHEEL_COLORS.length]);
+  wheelEls.forEach((c, i) => c.classList.toggle("front", i === k));
+  wheelBgs.forEach((b, i) => b.classList.toggle("on", i === k));
+  wheelDots.forEach((d, i) => d.classList.toggle("on", i === k));
+  const fs = $("#wheel-fs");
+  if (fs) fs.style.setProperty("--glow", WHEEL_COLORS[k % WHEEL_COLORS.length]);
   wheelSetNow(wheelSegs[k], false);
   if (live) {
     const now = performance.now();
-    if (now - wheelLastTick > 55) { wheelLastTick = now; haptic(5); wheelPtrFlick(); }
+    if (now - wheelLastTick > 55) { wheelLastTick = now; haptic(5); }
   }
 }
 
-// Пока ничего не происходит, барабан лениво вращается — как витрина
-function wheelIdleLoop(prev) {
-  wheelIdleRaf = requestAnimationFrame(now => {
-    if (!$("#wheel-stage")) return;
-    const dt = Math.min((now - prev) / 1000, 0.05);
-    if (!wheelSpinning && !wheelWon && !wheelDragging && wheelSegs.length > 1 && !RM()) {
-      wheelRot += 7 * dt;
-      wheelApplyRot(false);
-    }
-    wheelIdleLoop(now);
-  });
+// Универсальная анимация позиции: to — конечная позиция, ease — функция 0..1
+function wheelTween(to, ms, ease, done) {
+  cancelAnimationFrame(wheelRaf);
+  if (RM()) { wheelPos = to; wheelApply(false); if (done) done(); return; }
+  const from = wheelPos, t0 = performance.now();
+  const step = now => {
+    const t = Math.min((now - t0) / ms, 1);
+    wheelPos = from + (to - from) * ease(t);
+    wheelApply(true);
+    if (t < 1) wheelRaf = requestAnimationFrame(step);
+    else if (done) done();
+  };
+  wheelRaf = requestAnimationFrame(step);
+}
+
+// Подвести к ближайшему к index положению (по кратчайшему пути)
+function wheelGlideTo(index) {
+  const n = wheelSegs.length;
+  if (!n) return;
+  let delta = index - wheelPos;
+  delta -= n * Math.round(delta / n);
+  if (Math.abs(delta) < 0.001) return;
+  wheelTween(wheelPos + delta, 260 + Math.min(Math.abs(delta), 3) * 80, t => easeOut(t, 3));
 }
 
 function wheelUpdateUi() {
-  const sheet = $("#wheel-sheet");
-  if (!sheet) return;
+  const fs = $("#wheel-fs");
+  if (!fs) return;
   const pool = wheelPool();
   let txt = pool.length ? `Подходит: ${pool.length} ${plural(pool.length)}` : "Попробуйте другие условия";
   const rej = pool.filter(m => wheelRejected.has(m.id)).length;
   if (rej) txt += ` · отклонено: ${rej}`;
   const unk = wheelOpts.maxRt ? state.liked.filter(m => !m.runtime).length : 0;
   if (unk) txt += ` · ${unk} без длительности не учтены`;
-  if (pool.length > 1 && !wheelWon && !wheelSpinning) txt = "Свайпни барабан или зажми кнопку";
+  if (pool.length > 1 && !wheelWon && !wheelSpinning) txt = "Листай постеры или нажми «Крутить»";
   $("#wheel-status").textContent = txt;
-  sheet.classList.toggle("spinning", wheelSpinning);
-  const st = $("#wheel-stage");
-  if (st) { st.classList.toggle("spinning", wheelSpinning); st.classList.toggle("won", wheelWon && !wheelSpinning); st.classList.toggle("empty", !pool.length); }
+  fs.classList.toggle("spinning", wheelSpinning);
+  fs.classList.toggle("won", wheelWon && !wheelSpinning);
+  fs.classList.toggle("empty", !pool.length);
   const spin = $("#wheel-spin");
   spin.disabled = wheelSpinning || !pool.length;
   if (!spin.classList.contains("charging")) spin.innerHTML = `<span class="lbl">${ICON_SPIN}${wheelWon ? "Крутить ещё" : "Крутить"}</span>`;
@@ -1736,22 +1794,26 @@ function wheelUpdateUi() {
   if (!pool.length) wheelSetNow(null, false);
 }
 
-/* Свайп по барабану: постер под пальцем едет за пальцем, бросок — раскручивает */
+/* ---------- Жесты ---------- */
+// Свайп: карточки едут за пальцем, резкий бросок запускает прокрутку, тап по боковой карточке — подводит её в центр,
+// тап по центральной — открывает подробности
 function bindWheelStage() {
   const st = $("#wheel-stage");
   if (!st) return;
   let d = null;
 
   st.addEventListener("pointerdown", e => {
-    if (wheelSpinning || wheelSegs.length < 2) return;
+    if (wheelSpinning || !wheelSegs.length) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    d = { x: e.clientX, sx: e.clientX, sy: e.clientY, moved: false, v: 0, t: performance.now() };
+    cancelAnimationFrame(wheelRaf);
+    const card = e.target.closest(".cc");
+    d = { x: e.clientX, sx: e.clientX, sy: e.clientY, moved: false, v: 0, t: performance.now(), idx: card ? +card.dataset.i : -1 };
     try { st.setPointerCapture(e.pointerId); } catch (err) {}
   });
   st.addEventListener("pointermove", e => {
     if (!d) return;
     if (!d.moved) {
-      if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 8) return;
+      if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 8 || wheelSegs.length < 2) return;
       d.moved = true; d.x = e.clientX; d.t = performance.now();
       wheelDragging = true;
       if (wheelWon) { wheelWon = false; wheelWinIdx = -1; hideReveal(); clearTimeout(wheelOpenTimer); wheelUpdateUi(); }
@@ -1760,22 +1822,27 @@ function bindWheelStage() {
     }
     const dx = e.clientX - d.x;
     d.x = e.clientX;
-    const da = dx / Math.max(wheelR, 90) * 180 / Math.PI;   // поверхность барабана следует за пальцем
+    const dp = -dx / wheelPitch;
     const now = performance.now(), dt = Math.max(now - d.t, 1);
     d.t = now;
-    d.v = 0.7 * d.v + 0.3 * (da / dt * 1000);
-    wheelRot += da;
-    wheelApplyRot(true);
+    d.v = 0.7 * d.v + 0.3 * (dp / dt * 1000);   // скорость, карточек в секунду
+    wheelPos += dp;
+    wheelApply(true);
   });
   const end = e => {
     if (!d) return;
     const s = d; d = null;
     wheelDragging = false;
     st.classList.remove("dragging");
-    if (!s.moved) { if (e.type === "pointerup") wheelSpin(); return; }
+    if (!s.moved) {
+      if (e.type !== "pointerup" || s.idx < 0) return;
+      if (s.idx === wheelIdxAt(wheelPos)) { wheelCurrent = wheelSegs[s.idx]; openWheelPick(); }
+      else wheelGlideTo(s.idx);
+      return;
+    }
     const v = performance.now() - s.t > 90 ? 0 : s.v;
-    if (Math.abs(v) > 260) wheelSpin(Math.sign(v) * Math.min(Math.max(Math.abs(v), 700), 3000));
-    else wheelSettle(0, false);
+    if (Math.abs(v) > 2.4) wheelSpin({ dir: Math.sign(v), power: Math.min(1, (Math.abs(v) - 2.4) / 9) });
+    else wheelGlideTo(Math.round(wheelPos));
   };
   st.addEventListener("pointerup", end);
   st.addEventListener("pointercancel", end);
@@ -1813,7 +1880,7 @@ function bindWheelCharge() {
       wheelSwallow = true;
       setTimeout(() => { wheelSwallow = false; }, 400);
       wheelUpdateUi();
-      if (fire) { haptic(12); wheelSpin(900 + power * 2300); }
+      if (fire) { haptic(12); wheelSpin({ power }); }
     }
   };
   btn.addEventListener("pointerdown", start);
@@ -1823,73 +1890,39 @@ function bindWheelCharge() {
   btn.addEventListener("contextmenu", e => e.preventDefault());
 }
 
-function wheelSpin(v0) {
+/* ---------- Прокрутка ---------- */
+// opts.power 0..1 — сколько карточек пролистать; opts.dir ±1 — направление.
+// Победитель выбирается случайно и заранее, а карусель плавно тормозит ровно на нём.
+function wheelSpin(opts) {
   if (wheelSpinning) return;
+  const { power = 0.25 + Math.random() * 0.6, dir = 1 } = opts || {};
   const pool = wheelPool();
   if (!pool.length) return;
   clearTimeout(wheelOpenTimer);
   hideReveal();
   if (wheelWon && wheelCurrent) wheelRejected.add(wheelCurrent.id); // «Крутить ещё» = прошлый вариант отклонён
   wheelWon = false; wheelWinIdx = -1;
-  if (pool.length > WHEEL_MAX) {
-    wheelBuildCards();
-  } else {
+  if (pool.length > WHEEL_MAX) wheelBuildCards();
+  else {
     if (pool.every(m => wheelRejected.has(m.id))) wheelRejected.clear();
-    wheelCards.forEach(c => c.classList.remove("win"));
     wheelMarkRejected();
   }
-  wheelRun(v0 || (1250 + Math.random() * 800));
-}
 
-// Физика: скорость затухает экспоненциально, как у настоящего барабана
-function wheelRun(v0) {
+  const n = wheelSegs.length;
+  const cands = wheelSegs.map((m, i) => i).filter(i => !wheelRejected.has(wheelSegs[i].id));
+  const k = cands[Math.floor(Math.random() * cands.length)];
   wheelSpinning = true;
   wheelUpdateUi();
-  const dir = v0 >= 0 ? 1 : -1;
-  if (RM()) {
-    wheelRot += dir * (720 + Math.random() * 720);
-    wheelApplyRot(false);
-    return wheelSettle(dir, true);
-  }
-  const TAU = 1.25;
-  let v = v0, last = performance.now();
-  const step = now => {
-    const dt = Math.min((now - last) / 1000, 0.05);
-    last = now;
-    wheelRot += v * dt;
-    v *= Math.exp(-dt / TAU);
-    wheelApplyRot(true);
-    if (Math.abs(v) > 16) wheelRaf = requestAnimationFrame(step);
-    else wheelSettle(dir, false);
-  };
-  wheelRaf = requestAnimationFrame(step);
-}
 
-// Доводка до ближайшего постера по центру. dir = 0 — просто «примагнитить», без результата
-function wheelSettle(dir, instant) {
-  const n = wheelSegs.length;
-  if (!n) { wheelSpinning = false; return; }
-  const seg = wheelSegDeg();
-  let k = wheelIdxAt(wheelRot), steps = 0;
-  if (dir) {
-    while (wheelRejected.has(wheelSegs[k].id) && steps < n) { k = mod(k + (dir > 0 ? -1 : 1), n); steps++; }
+  if (n < 2 || RM()) {
+    wheelPos = k;
+    wheelApply(false);
+    return wheelFinish(k);
   }
-  const c = -k * seg;
-  let delta = mod(c - wheelRot, 360);
-  if (steps === 0) { if (delta > 180) delta -= 360; }
-  else if (dir < 0) delta -= 360;
-  const from = wheelRot;
-  const finish = () => { if (dir) wheelFinish(k); };
-  if (instant || RM()) { wheelRot = from + delta; wheelApplyRot(false); return finish(); }
-  const dur = 280 + Math.min(Math.abs(delta), 200) * 2.2, t0 = performance.now();
-  const step = now => {
-    const t = Math.min((now - t0) / dur, 1);
-    wheelRot = from + delta * (1 - Math.pow(1 - t, 3));
-    wheelApplyRot(true);
-    if (t < 1) wheelRaf = requestAnimationFrame(step);
-    else finish();
-  };
-  wheelRaf = requestAnimationFrame(step);
+  const T = 18 + power * 20;                                  // минимум карточек, которые промелькнут
+  let delta = dir > 0 ? mod(k - wheelPos, n) : mod(wheelPos - k, n);
+  while (delta < T) delta += n;
+  wheelTween(wheelPos + dir * delta, 2400 + T * 45, t => easeOut(t, 3.4), () => wheelFinish(k));
 }
 
 function wheelFinish(k) {
@@ -1899,7 +1932,7 @@ function wheelFinish(k) {
   wheelWon = true;
   wheelWinIdx = k;
   wheelLastIdx = -1;
-  wheelApplyRot(false);
+  wheelApply(false);
   wheelSetNow(m, true);
   wheelUpdateUi();
   const st = $("#wheel-stage");
@@ -2033,7 +2066,12 @@ function hideReveal() {
   const r = wheelRevealEl();
   if (!r || r.classList.contains("out")) return;
   r.classList.add("out");
-  setTimeout(() => { r.remove(); if (!wheelRevealEl()) revealBarsOff(); }, 280);
+  setTimeout(() => {
+    r.remove();
+    if (wheelRevealEl()) return;
+    const w = wheelEl(); // под победным экраном осталась карусель — safe-зоны возвращаем к её цвету
+    if (w && !w.hidden && !w.classList.contains("closing")) revealBarsOn(WHEEL_BASE); else revealBarsOff();
+  }, 280);
 }
 
 function wheelConfetti(host, cx, cy) {
@@ -2068,9 +2106,10 @@ function wheelReveal() {
     ? `<a class="btn primary" data-watch="${m.id}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ICON_PLAY}Смотреть</a>`
     : `<button class="btn primary" id="reveal-src">${ICON_PLAY}Смотреть</button>`;
 
-  const stg = document.querySelector("#wheel-stage");
-  const sr = stg ? stg.getBoundingClientRect() : null;
-  const from = sr ? { left: sr.left + sr.width / 2 - 28, top: sr.top + sr.height * 0.14, width: 56, height: 84 } : null;
+  // Постер «вылетает» из центральной карточки карусели
+  const fc = document.querySelector("#wheel-track .cc.front .cc-face");
+  const sr = fc ? fc.getBoundingClientRect() : null;
+  const from = sr ? { left: sr.left, top: sr.top, width: sr.width, height: sr.height } : null;
 
   const r = document.createElement("div");
   r.id = "wheel-reveal";
