@@ -391,21 +391,6 @@ html.theme-fade, html.theme-fade * { transition: background-color .45s var(--eas
 .wchip[aria-pressed="true"] { color: var(--fg); border-color: var(--user-accent); background: var(--surface-2); }
 
 /* Слот-автомат: три строки, в центре рамка-«указатель» */
-.wheel-window { --cell: 108px; position: relative; height: calc(var(--cell) * 3); overflow: hidden; border-radius: 18px; background: var(--bg); border: 1px solid var(--line); }
-.wheel-window::before, .wheel-window::after { content: ""; position: absolute; left: 0; right: 0; height: var(--cell); z-index: 2; pointer-events: none; }
-.wheel-window::before { top: 0; background: linear-gradient(var(--bg), transparent); }
-.wheel-window::after { bottom: 0; background: linear-gradient(transparent, var(--bg)); }
-.wheel-strip { will-change: transform; }
-.wcell { height: var(--cell); display: flex; align-items: center; gap: 14px; padding: 0 18px; }
-.wthumb { flex: none; width: 56px; height: 84px; border-radius: 8px; overflow: hidden; background: var(--surface-2); }
-.wthumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-.wtext { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.wtext b { font-weight: 600; font-size: 15px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color var(--t-base) var(--ease); }
-.wtext span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.wcell.win b { color: var(--user-accent); }
-.wheel-frame { position: absolute; left: 8px; right: 8px; top: var(--cell); height: var(--cell); border: 2px solid var(--user-accent); border-radius: 14px; z-index: 3; pointer-events: none; transition: box-shadow var(--t-slow) var(--ease); }
-.wheel-frame.won { box-shadow: 0 0 0 4px rgba(60, 187, 177, .18), 0 0 28px rgba(60, 187, 177, .35); }
-.wheel-none { height: calc(var(--cell) * 3); display: grid; place-items: center; color: var(--muted); font-size: 14px; text-align: center; padding: 0 24px; }
 
 .wheel-status { text-align: center; font-size: 13px; color: var(--muted); min-height: 19px; }
 .wheel-actions { display: flex; gap: 8px; }
@@ -588,3 +573,75 @@ html.rv-open .safe-cap { background: var(--rv-base); transition: background-colo
 /* bokeh */
 .rb-bokeh .bk { bottom: -12vmin; border-radius: 50%; opacity: 0; mix-blend-mode: screen; animation: rb-float linear infinite; will-change: transform, opacity; }
 .rb-bokeh .glow { inset: 0; background: radial-gradient(circle at 50% 100%, color-mix(in srgb, var(--c1) 30%, transparent), transparent 60%); }
+
+/* ---------- Кинобарабан ---------- */
+@keyframes wl-blink { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
+@keyframes wl-win { 0%, 100% { opacity: 1; filter: brightness(1); } 50% { opacity: .45; filter: brightness(1.8); } }
+@keyframes rc-win { from { transform: translateZ(26px) scale(1.07); } to { transform: translateZ(34px) scale(1.13); } }
+@keyframes spin-glow { 0%, 100% { box-shadow: 0 8px 22px color-mix(in srgb, var(--user-accent) 40%, transparent); } 50% { box-shadow: 0 8px 30px color-mix(in srgb, var(--user-accent) 75%, transparent); } }
+
+.reel { --cw: clamp(92px, 27vw, 120px); --glow: #2fb3a8; position: relative; flex: none; border-radius: 22px; overflow: hidden; touch-action: none; cursor: grab;
+  background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--glow) 26%, #0b0c12), #06070b 72%);
+  border: 1px solid rgba(255,255,255,.1); box-shadow: 0 12px 30px var(--card-shadow), inset 0 0 40px rgba(0,0,0,.55); }
+.reel.dragging { cursor: grabbing; }
+.reel-view { position: relative; height: calc(var(--cw) * 1.5 + 82px); perspective: calc(var(--cw) * 5.4); perspective-origin: 50% 42%; }
+
+.reel-spot { position: absolute; left: 50%; top: 0; width: calc(var(--cw) * 2.8); height: 100%; margin-left: calc(var(--cw) * -1.4); pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--glow) 55%, transparent), transparent 88%); clip-path: polygon(40% 0, 60% 0, 100% 100%, 0 100%); opacity: .5; }
+.reel-floor { position: absolute; left: 50%; bottom: 30px; width: calc(var(--cw) * 2.4); height: calc(var(--cw) * .34); margin-left: calc(var(--cw) * -1.2); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 75%, transparent), transparent); filter: blur(5px); }
+
+.reel-drum { position: absolute; left: 50%; top: 42px; width: var(--cw); height: calc(var(--cw) * 1.5); margin-left: calc(var(--cw) * -.5); transform-style: preserve-3d; will-change: transform; }
+.rc { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateY(calc(var(--i) * var(--seg))) translateZ(var(--r)); }
+.rc-face { position: absolute; inset: 0; border-radius: 10px; overflow: hidden; background: linear-gradient(160deg, #2a2b36, #15161c); border: 1px solid rgba(255,255,255,.22);
+  box-shadow: 0 10px 22px rgba(0,0,0,.6); -webkit-backface-visibility: hidden; backface-visibility: hidden; transition: transform .28s var(--spring), box-shadow .28s var(--ease), border-color .2s; }
+.rc-face img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.rc-ph { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-display); font-size: 40px; color: #fff; }
+.rc-face::after { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, rgba(255,255,255,.22), transparent 38%); pointer-events: none; }
+.rc-shade { position: absolute; inset: 0; background: #000; opacity: var(--sh, 0); pointer-events: none; z-index: 1; }
+.rc-out { position: absolute; inset: 0; z-index: 2; display: none; place-items: center; background: rgba(6,8,12,.7); color: #fff; font-size: calc(var(--cw) * .42); }
+.rc.out .rc-out { display: grid; }
+.rc.front .rc-face { transform: translateZ(24px) scale(1.07); border-color: #fff;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--glow) 85%, #fff), 0 0 34px color-mix(in srgb, var(--glow) 80%, transparent), 0 16px 30px rgba(0,0,0,.65); }
+.reel.won .rc.front .rc-face { animation: rc-win .8s ease-in-out infinite alternate; }
+
+.reel-ptr { position: absolute; left: 50%; width: 22px; height: 13px; margin-left: -11px; z-index: 4; pointer-events: none; filter: drop-shadow(0 0 6px var(--glow)); }
+.reel-ptr::before { content: ""; position: absolute; inset: 0; background: #fff; clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.reel-ptr.t { top: 24px; }
+.reel-ptr.b { bottom: 34px; }
+.reel-ptr.b::before { transform: scaleY(-1); }
+.reel-hint { position: absolute; left: 0; right: 0; bottom: 31px; text-align: center; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.45); pointer-events: none; transition: opacity var(--t-base); }
+.reel.spinning .reel-hint, .reel.won .reel-hint { opacity: 0; }
+
+.reel-bulbs { position: absolute; left: 0; right: 0; z-index: 3; display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none; }
+.reel-bulbs.top { top: 9px; }
+.reel-bulbs.bottom { bottom: 9px; }
+.reel-bulbs i { width: 6px; height: 6px; border-radius: 50%; background: #ffd166; box-shadow: 0 0 8px 1px #ffd166; animation: wl-blink 1.3s ease-in-out infinite; }
+.reel-bulbs i:nth-child(even) { animation-delay: -.65s; }
+.reel.spinning .reel-bulbs i { animation-duration: .28s; }
+.reel.won .reel-bulbs i { animation: wl-win .5s ease-in-out 5; }
+.reel.empty .reel-bulbs i { animation: none; opacity: .2; }
+
+.wheel-now { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 44px; text-align: center; padding: 0 6px; }
+.wheel-now b { max-width: 100%; font-family: var(--font-display); font-weight: 500; font-size: 16px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--t-base) var(--ease); }
+.wheel-now span { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wheel-now.win b { color: var(--user-accent); }
+
+/* Кнопка запуска — внизу шторки, во всю ширину, в зоне большого пальца */
+.wheel-sheet { padding-bottom: 0; gap: 12px; }
+.wheel-actions { position: sticky; bottom: 0; z-index: 3; display: flex; gap: 10px; margin: 4px -20px 0;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--line); }
+.wheel-actions .btn { min-height: 60px; font-size: 17px; font-weight: 600; flex: 1 1 0; }
+.wheel-actions .btn svg { width: 22px; height: 22px; flex: none; }
+.wheel-actions #wheel-open { flex: 0 0 34%; font-size: 15px; }
+#wheel-spin { overflow: hidden; animation: spin-glow 2.4s ease-in-out infinite; -webkit-touch-callout: none; }
+#wheel-spin[disabled] { animation: none; }
+#wheel-spin .lbl { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 8px; }
+#wheel-spin::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--p, 0) * 100%); background: rgba(255,255,255,.34); opacity: 0; }
+#wheel-spin.charging::before { opacity: 1; }
+#wheel-spin.charging { animation: none; }
+
+@media (max-height: 700px) {
+  .reel { --cw: clamp(80px, 23vw, 98px); }
+  .wheel-actions .btn { min-height: 54px; }
+}
