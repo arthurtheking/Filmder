@@ -1553,7 +1553,7 @@ function closeWheelUI() {
   const s = $("#wheel-sheet");
   if (s) s.classList.add("dismissing");
   clearTimeout(wheelCloseTimer);
-  wheelCloseTimer = setTimeout(() => { o.hidden = true; o.classList.remove("closing"); o.innerHTML = ""; o.style.opacity = ""; }, 340);
+  wheelCloseTimer = setTimeout(() => { o.hidden = true; o.classList.remove("closing"); o.innerHTML = ""; o.style.opacity = ""; revealBarsOff(); }, 340);
 }
 
 function wheelClick(e) {
@@ -1711,13 +1711,131 @@ function wheelFinish(m, W) {
 }
 
 /* ---------- Выход победителя ---------- */
+
+/* ---------- Случайный фон победного экрана ---------- */
+// [основа, акцент 1, акцент 2, акцент 3]
+const RV_PALETTES = [
+  ["#04090a", "#3CBBB1", "#46e0a0", "#2a7fb8"],
+  ["#0d0608", "#ff7a5c", "#ff4d8d", "#ffb347"],
+  ["#08060f", "#8b5cf6", "#ec4899", "#38bdf8"],
+  ["#040a14", "#2563eb", "#06b6d4", "#a5b4fc"],
+  ["#070a05", "#a3e635", "#22d3ee", "#facc15"],
+  ["#0c0405", "#ef4444", "#f97316", "#fb7185"],
+  ["#0a0803", "#f59e0b", "#fde68a", "#ea580c"],
+  ["#060a09", "#34d399", "#f472b6", "#60a5fa"],
+  ["#0a0510", "#d946ef", "#6366f1", "#22d3ee"],
+  ["#030a0c", "#14b8a6", "#0ea5e9", "#a78bfa"],
+];
+const RV_PATTERNS = ["rays", "aurora", "mesh", "grid", "floor", "dots", "stripes", "checker", "sonar", "beams", "bokeh"];
+let rvLast = { pattern: "", palette: -1 };
+const rvRand = (a, b) => a + Math.random() * (b - a);
+const rvInt = (a, b) => Math.floor(rvRand(a, b + 1));
+
+function rvPick(list, lastVal, get) {
+  let v, t = 0;
+  do { v = list[Math.floor(Math.random() * list.length)]; } while (get(v) === lastVal && list.length > 1 && ++t < 20);
+  return v;
+}
+
+// Возвращает { base, vars, html }: каждый раз новый узор + палитра + скорость/размер/угол
+function buildRevealBg() {
+  const pattern = rvPick(RV_PATTERNS, rvLast.pattern, x => x);
+  let pi;
+  do { pi = rvInt(0, RV_PALETTES.length - 1); } while (pi === rvLast.palette);
+  rvLast = { pattern, palette: pi };
+  const [base, c1, c2, c3] = RV_PALETTES[pi];
+  const rev = Math.random() < 0.5 ? "reverse" : "normal";
+  const vars = { "--rv-base": base, "--c1": c1, "--c2": c2, "--c3": c3, "--dur": rvRand(14, 34).toFixed(1) + "s", "--dir": rev };
+  let inner = "";
+
+  switch (pattern) {
+    case "rays":
+      vars["--w"] = rvRand(3, 9).toFixed(1);
+      inner = `<i class="l"></i><i class="l l2"></i>`;
+      break;
+    case "aurora":
+      vars["--dur"] = rvRand(9, 18).toFixed(1) + "s";
+      inner = `<i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>`;
+      break;
+    case "mesh":
+      vars["--dur"] = rvRand(22, 50).toFixed(1) + "s";
+      inner = `<i class="l"></i>`;
+      break;
+    case "grid":
+      vars["--sz"] = rvInt(34, 70) + "px";
+      vars["--ang"] = rvInt(-35, 35) + "deg";
+      inner = `<i class="glow"></i><i class="l"></i>`;
+      break;
+    case "floor":
+      vars["--sz"] = rvInt(46, 80) + "px";
+      inner = `<i class="sun"></i><i class="l"></i>`;
+      break;
+    case "dots":
+      vars["--sz"] = rvInt(22, 42) + "px";
+      vars["--r"] = rvInt(2, 5) + "px";
+      inner = `<i class="glow"></i><i class="l"></i><i class="l l2"></i>`;
+      break;
+    case "stripes":
+      vars["--w"] = rvInt(14, 38) + "px";
+      vars["--ang"] = rvInt(-60, 60) + "deg";
+      inner = `<div class="st"><i class="s1"></i><i class="s2"></i></div>`;
+      break;
+    case "checker":
+      vars["--sz"] = rvInt(60, 110) + "px";
+      inner = `<div class="st"><i class="l"></i></div>`;
+      break;
+    case "sonar":
+      vars["--dur"] = rvRand(5, 9).toFixed(1) + "s";
+      inner = `<i class="glow"></i>` + [0, 1, 2, 3, 4].map(i => `<i class="ring" style="--i:${i}"></i>`).join("");
+      break;
+    case "beams": {
+      vars["--dur"] = rvRand(5, 9).toFixed(1) + "s";
+      const cols = [c1, c2, c3, c1];
+      const n = rvInt(3, 4);
+      inner = `<i class="glow"></i>`;
+      for (let i = 0; i < n; i++) {
+        const spread = rvRand(18, 38), off = (i - (n - 1) / 2) * rvRand(14, 24);
+        const a0 = (off - spread).toFixed(0) + "deg", a1 = (off + spread).toFixed(0) + "deg";
+        const bc = `color-mix(in srgb, ${cols[i]} 55%, transparent)`;
+        inner += `<i class="beam" style="--a0:${i % 2 ? a1 : a0};--a1:${i % 2 ? a0 : a1};--bc:${bc};animation-delay:${(-i * rvRand(0.8, 2)).toFixed(1)}s;animation-duration:${rvRand(4, 9).toFixed(1)}s"></i>`;
+      }
+      break;
+    }
+    case "bokeh": {
+      const cols = [c1, c2, c3];
+      inner = `<i class="glow"></i>`;
+      for (let i = 0; i < rvInt(16, 24); i++) {
+        const s = rvRand(6, 22).toFixed(1);
+        inner += `<i class="bk" style="left:${rvRand(-2, 98).toFixed(1)}%;width:${s}vmin;height:${s}vmin;--o:${rvRand(.25, .7).toFixed(2)};background:radial-gradient(circle,${cols[i % 3]},transparent 70%);filter:blur(${rvRand(0, 6).toFixed(1)}px);animation-duration:${rvRand(8, 18).toFixed(1)}s;animation-delay:${(-rvRand(0, 14)).toFixed(1)}s"></i>`;
+      }
+      break;
+    }
+  }
+  return { base, vars, html: `<div class="reveal-bg rb-${pattern}" aria-hidden="true">${inner}</div>` };
+}
+
+// Safe-зоны (вырез / home-индикатор) красим в цвет победного экрана, пока он открыт
+function revealBarsOn(base) {
+  const root = document.documentElement;
+  root.style.setProperty("--rv-base", base);
+  root.classList.add("rv-open");
+  if (themeMeta) themeMeta.content = base;
+}
+function revealBarsOff() {
+  const root = document.documentElement;
+  if (!root.classList.contains("rv-open")) return;
+  root.classList.remove("rv-open");
+  root.style.removeProperty("--rv-base");
+  syncBars();
+}
+
 const wheelRevealEl = () => document.getElementById("wheel-reveal");
 
 function hideReveal() {
   const r = wheelRevealEl();
   if (!r || r.classList.contains("out")) return;
   r.classList.add("out");
-  setTimeout(() => r.remove(), 280);
+  setTimeout(() => { r.remove(); if (!wheelRevealEl()) revealBarsOff(); }, 280);
 }
 
 function wheelConfetti(host, cx, cy) {
@@ -1758,7 +1876,9 @@ function wheelReveal() {
   const r = document.createElement("div");
   r.id = "wheel-reveal";
   r.className = "reveal";
-  r.innerHTML = `<div class="reveal-rays"></div>
+  const bg = buildRevealBg();
+  Object.entries(bg.vars).forEach(([k, v]) => r.style.setProperty(k, v));
+  r.innerHTML = `${bg.html}
     <div class="reveal-tag">Сегодня смотрим</div>
     <button class="reveal-card" id="reveal-card" aria-label="Подробнее о фильме">
       <span class="reveal-tilt">${poster ? `<img src="${poster}" alt="" draggable="false">` : ""}<span class="reveal-shine"></span></span>
@@ -1773,6 +1893,7 @@ function wheelReveal() {
     </div>
     <button class="reveal-details" id="reveal-details">Подробнее и трейлер</button>`;
   o.appendChild(r);
+  revealBarsOn(bg.base);
 
   haptic([18, 50, 28]);
 
@@ -1819,6 +1940,16 @@ function openWheelPick() {
 function hideLayers() { closeSheetUI(); closeFiltersUI(); closeWheelUI(); }
 
 /* ============ Запуск ============ */
+/* ============ Версия приложения ============ */
+(function showVersion() {
+  const el = $("#app-version");
+  if (!el) return;
+  const v = window.APP_VERSION;
+  if (!v || !v.version || v.version === "dev") { el.textContent = "dev"; return; }
+  el.textContent = `v${v.version}${v.sha ? " · " + v.sha : ""}`;
+  if (v.date) el.title = "Обновлено " + v.date;
+})();
+
 let appStarted = false;
 let splashResolve;
 const splashDone = new Promise(r => (splashResolve = r));
