@@ -107,7 +107,7 @@ function newPaging() { return { page: 1, total: 1, loading: false, error: null }
 
 /* ============ Тема ============ */
 const themeInput = $("#theme-switch-input");
-const themeMeta = document.querySelector('meta[name="theme-color"]');
+let themeMeta = document.querySelector('meta[name="theme-color"]');
 
 // Цвета строки состояния / safe-зон (должны совпадать с --bg в CSS)
 const THEME_RGB = { dark: [10, 10, 13], light: [234, 236, 236] };
@@ -133,10 +133,32 @@ function tweenMeta(light, ms) {
   metaRaf = requestAnimationFrame(tick);
 }
 
+// Жёстко выставляет цвет safe-зон по текущей теме. Safari иногда «залипает» на промежуточном цвете или
+// на цвете уехавшего тоста, поэтому тег theme-color пересоздаём заново, а не просто меняем content.
+function syncBars() {
+  const light = document.documentElement.classList.contains("light");
+  const hex = rgbHex(THEME_RGB[light ? "light" : "dark"]);
+  metaNow = THEME_RGB[light ? "light" : "dark"];
+  document.documentElement.style.backgroundColor = "";
+  const old = document.querySelectorAll('meta[name="theme-color"]');
+  const fresh = document.createElement("meta");
+  fresh.name = "theme-color";
+  fresh.content = hex;
+  document.head.appendChild(fresh);
+  old.forEach(m => m.remove());
+  themeMeta = fresh;
+}
+let syncTimer = 0;
+const syncBarsSoon = (ms = 60) => { clearTimeout(syncTimer); syncTimer = setTimeout(syncBars, ms); };
+addEventListener("pageshow", () => syncBarsSoon(0));
+addEventListener("resize", () => syncBarsSoon(150));
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncBarsSoon(0); });
+
 function paintTheme(light, ms = 0) {
   document.documentElement.classList.toggle("light", light);
   if (themeInput) themeInput.checked = light;
   tweenMeta(light, ms);
+  if (ms) syncBarsSoon(ms + 80); // после анимации — точное финальное значение
 }
 
 function setTheme(light) {
@@ -338,14 +360,59 @@ function renderSwipe(mode, undoDir) {
   }
 }
 
-function hint(el) {
+function hint(el, delay = 1600) {
   el._hint = anim(el, [
     { transform: tf(0) },
     { transform: "translateX(26px) rotate(3deg)", offset: 0.3 },
     { transform: "translateX(-26px) rotate(-3deg)", offset: 0.65 },
     { transform: tf(0) },
-  ], { duration: 1300, delay: 1600, fill: "none", easing: "ease-in-out" });
+  ], { duration: 1300, delay, fill: "none", easing: "ease-in-out" });
 }
+
+/* ============ Подсказки при бездействии ============ */
+const IDLE_MS = 7000;
+let lastInput = performance.now();
+["pointerdown", "keydown", "wheel", "touchstart"].forEach(ev =>
+  addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true, capture: true }));
+
+function cancelRowHint(row) {
+  (row._hints || []).forEach(a => { try { a.cancel(); } catch (e) {} });
+  row._hints = null;
+}
+
+// Строка списка чуть уезжает вправо («Просмотрено»), затем влево («Удалить»), приоткрывая плашки
+function hintRow(row) {
+  const c = row.closest(".row-container");
+  if (!c || c.classList.contains("gone") || c.classList.contains("dragging")) return;
+  const w = c.querySelector(".row-watch-bg"), d = c.querySelector(".row-delete-bg");
+  const o = { duration: 1500, fill: "none", easing: "ease-in-out" };
+  const list = [
+    anim(row, [
+      { transform: "translateX(0)" },
+      { transform: "translateX(52px)", offset: 0.28 },
+      { transform: "translateX(0)", offset: 0.5 },
+      { transform: "translateX(-52px)", offset: 0.76 },
+      { transform: "translateX(0)" },
+    ], o),
+    anim(w, [{ width: "0px" }, { width: "52px", offset: 0.28 }, { width: "0px", offset: 0.5 }, { width: "0px" }], o),
+    anim(d, [{ width: "0px" }, { width: "0px", offset: 0.5 }, { width: "52px", offset: 0.76 }, { width: "0px" }], o),
+  ].filter(Boolean);
+  row._hints = list;
+}
+
+function idleTick() {
+  if (document.hidden || busy || performance.now() - lastInput < IDLE_MS) return;
+  if (!$("#overlay").hidden || !$("#filters-overlay").hidden || !$("#tutorial").hidden || $("#splash") || appStarted === false) return;
+  if (!$("#view-swipe").hidden) {
+    const card = $("#stage .card:last-child");
+    if (card && !card.style.transform.includes("translate3d")) { if (card._hint) card._hint.cancel(); hint(card, 0); }
+  } else if (!$("#view-list").hidden) {
+    const row = document.querySelector("#list .row-container:not(.gone) .row");
+    if (row) hintRow(row);
+  }
+  lastInput = performance.now(); // следующая подсказка — после очередной паузы
+}
+setInterval(idleTick, 1000);
 
 /* ============ Свайп карточки ============ */
 function bindDrag(el, m) {
@@ -644,6 +711,7 @@ function showToast({ sub, title, id, undo: undoFn, actionLabel, ms }) {
 function hideToast() {
   clearTimeout(toastTimer);
   $("#toast").classList.remove("show");
+  syncBarsSoon(900); // когда тост полностью уехал — вернуть safe-зону к цвету фона
 }
 
 /* Свайп вверх закрывает уведомление */
@@ -690,7 +758,7 @@ function hideToast() {
       t.style.transform = ""; t.style.opacity = "";
       hideToast();
       clearTimeout(toastDismissTimer);
-      toastDismissTimer = setTimeout(() => t.classList.remove("dismissing"), 450);
+      toastDismissTimer = setTimeout(() => { t.classList.remove("dismissing"); syncBarsSoon(0); }, 450);
     } else {
       t.style.transform = ""; t.style.opacity = "";
       if (bar) { bar.style.animation = "none"; void bar.offsetWidth; bar.style.animation = ""; bar.style.animationPlayState = ""; }
@@ -715,10 +783,9 @@ let categoryOrder = [];
 function rowHtml(m, i, watchedMode) {
   const meta = [m.year, dur(m.runtime), `★ ${(m.rating || 0).toFixed(1)}`].filter(Boolean).join(" · ");
   const date = watchedMode && m.watchedAt ? `<div class="row-date">Просмотрено ${esc(fmtDate(m.watchedAt))}</div>` : "";
-  const check = watchedMode ? "" : `<button class="row-check" data-mark="${m.id}" aria-label="Отметить просмотренным">${ICON_CHECK}</button>`;
   return `<div class="row-container" data-id="${m.id}" style="--i:${Math.min(i, 8)}">
-    <div class="row-watch-bg">${watchedMode ? "В вечер" : "Просмотрено"}</div>
-    <div class="row-delete-bg">Удалить</div>
+    <div class="row-watch-bg" aria-hidden="true"><span>${watchedMode ? "В вечер" : "Просмотрено"}</span></div>
+    <div class="row-delete-bg" aria-hidden="true"><span>Удалить</span></div>
     <div class="row">
       <div class="thumb">${posterHtml(m.poster, "w185", m.title)}</div>
       <div class="row-main">
@@ -726,7 +793,6 @@ function rowHtml(m, i, watchedMode) {
         <div class="row-meta">${meta}</div>
         ${date}
       </div>
-      ${check}
     </div>
   </div>`;
 }
@@ -741,7 +807,7 @@ function renderList() {
     list.innerHTML = watchedMode
       ? `<div class="empty" style="position:static;flex:1">
           <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>
-          <h2>Пока ничего не просмотрено</h2><p>Отметьте фильм галочкой, смахните его вправо в списке «К просмотру» или нажмите «Отметить просмотренным» в карточке фильма.</p></div>`
+          <h2>Пока ничего не просмотрено</h2><p>Смахните фильм вправо в списке «К просмотру» или нажмите «Отметить просмотренным» в карточке фильма.</p></div>`
       : `<div class="empty" style="position:static;flex:1">
           <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.6 4.5 6.4 4.5c2.2 0 3.6 1.2 4.6 2.7h2c1-1.5 2.4-2.7 4.6-2.7 3.8 0 5.5 3.9 4 7.3C19.5 16.4 12 21 12 21z"/></svg>
           <h2>Вечер пока пуст</h2><p>Свайпайте вправо фильмы, которые хочется посмотреть. Они появятся здесь.</p></div>`;
@@ -788,7 +854,6 @@ function setListMode(mode) {
   listMode = mode;
   $("#seg-queue").setAttribute("aria-selected", mode === "queue");
   $("#seg-watched").setAttribute("aria-selected", mode === "watched");
-  $("#seg-ind").classList.toggle("right", mode === "watched");
   const l = $("#list");
   renderList();
   l.scrollTop = 0;
@@ -798,11 +863,20 @@ function setListMode(mode) {
 
 /* Плавное удаление / перенос: строка уезжает с места пальца до конца,
    потом блок схлопывается по высоте, и только после этого обновляются данные. */
+// Ширина плашки = открытая часть под сдвинутой строкой (dx > 0 — «Просмотрено», dx < 0 — «Удалить»)
+function setPlates(container, dx) {
+  const w = container.querySelector(".row-watch-bg"), d = container.querySelector(".row-delete-bg");
+  if (w) w.style.width = dx > 0 ? dx + "px" : "0px";
+  if (d) d.style.width = dx < 0 ? -dx + "px" : "0px";
+}
+
 async function removeRow(row, container, section, fromX, dir, commit) {
   if (container.classList.contains("gone")) return;
   haptic();
-  container.classList.remove(dir > 0 ? "dir-l" : "dir-r");
-  container.classList.add("swiping", "gone", dir > 0 ? "dir-r" : "dir-l");
+  container.classList.remove("dragging");
+  container.classList.add("gone");
+  void container.offsetWidth;
+  setPlates(container, dir * container.offsetWidth); // плашка плавно растёт вслед за уезжающей строкой
 
   const siblings = section ? section.querySelectorAll(".row-container:not(.gone)").length : 1;
   const target = section && siblings === 0 ? section : container;
@@ -834,10 +908,10 @@ function bindRowSwipe() {
     const container = row.closest(".row-container");
     const section = row.closest(".category-section");
     const id = +container.dataset.id;
-    const clearDir = () => container.classList.remove("swiping", "dir-l", "dir-r");
+    const clearDir = () => { container.classList.remove("dragging"); setPlates(container, 0); };
 
     row.addEventListener("pointerdown", e => {
-      if (e.target.closest(".row-check")) return; // кнопка-галочка обрабатывается кликом
+      cancelRowHint(row);
       if (container.classList.contains("gone")) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
       startX = e.clientX; startY = e.clientY; dx = 0;
@@ -860,12 +934,11 @@ function bindRowSwipe() {
           row.style.transform = "";
           return;
         }
-        if (Math.abs(dx) > 6) { locked = true; container.classList.add("swiping"); }
+        if (Math.abs(dx) > 6) { locked = true; container.classList.add("dragging"); }
       }
       if (locked) {
-        container.classList.toggle("dir-l", dx < 0);
-        container.classList.toggle("dir-r", dx > 0);
         row.style.transform = `translateX(${dx}px)`;
+        setPlates(container, dx);
       }
     });
 
@@ -882,7 +955,7 @@ function bindRowSwipe() {
 
       row.style.transition = "";
       row.style.transform = "";
-      setTimeout(clearDir, 300);
+      clearDir();
       if (!moved) { const m = findMovie(id); if (m) openSheet(m); }
       locked = false; dx = 0;
     };
@@ -964,10 +1037,20 @@ function closeFiltersUI() {
 /* Свайп шторки вниз (touch-события, чтобы не конфликтовать со скроллом) */
 function bindSheetDrag(sheet, overlay) {
   if (!sheet) return;
-  let startY = 0, startX = 0, dy = 0, tracking = false, dragging = false, lastY = 0, lastT = 0, vy = 0;
+  let startY = 0, startX = 0, dy = 0, tracking = false, dragging = false, lastY = 0, lastT = 0, vy = 0, startTarget = null;
+
+  // Прокручен ли вниз хоть один элемент от касания до шторки (сама шторка или вложенный список, например сетка жанров)
+  const scrolledInside = el => {
+    for (let n = el; n; n = n.parentElement) {
+      if (n.scrollTop > 0) return true;
+      if (n === sheet) break;
+    }
+    return false;
+  };
 
   sheet.addEventListener("touchstart", e => {
-    if (e.touches.length !== 1 || sheet.scrollTop > 0 || e.target.closest("input, iframe, .related-scroll")) { tracking = false; return; }
+    if (e.touches.length !== 1 || scrolledInside(e.target) || e.target.closest("input, iframe, .related-scroll")) { tracking = false; return; }
+    startTarget = e.target;
     const t = e.touches[0];
     startY = lastY = t.clientY; startX = t.clientX; lastT = performance.now();
     tracking = true; dragging = false; dy = 0; vy = 0;
@@ -980,7 +1063,8 @@ function bindSheetDrag(sheet, overlay) {
     const dx = t.clientX - startX;
     if (!dragging) {
       if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { tracking = false; return; }
-      if (dy > 8 && sheet.scrollTop <= 0) { dragging = true; sheet.style.transition = "none"; }
+      if (dy < -8 || scrolledInside(startTarget)) { tracking = false; return; } // это прокрутка содержимого, а не закрытие
+      if (dy > 8) { dragging = true; sheet.style.transition = "none"; }
       else return;
     }
     e.preventDefault();
@@ -1238,7 +1322,7 @@ const tutorialSteps = [
   { title: "Как свайпать", text: "Свайп вправо добавляет фильм в «Мой вечер», свайп влево — пропускает его. Нажмите на карточку, чтобы посмотреть трейлер." },
   { title: "Жанры и фильтры", text: "Настраивайте мультивыбор жанров через кнопку «Фильтры» в правом верхнем углу." },
   { title: "Мой вечер", text: "Здесь хранятся выбранные фильмы по категориям. Смахните фильм влево, чтобы удалить его." },
-  { title: "Просмотренные", text: "Посмотрели фильм — отметьте его галочкой или смахните вправо. Он переедет в отдельный список «Просмотрено» и больше не появится в свайпах. Нажали «Смотреть» — после возвращения в приложение мы сами предложим отметить фильм." },
+  { title: "Просмотренные", text: "Посмотрели фильм — смахните его вправо. Он переедет в отдельный список «Просмотрено» и больше не появится в свайпах. Нажали «Смотреть» — после возвращения в приложение мы сами предложим отметить фильм." },
 ];
 let tutorialStep = 0;
 
@@ -1286,12 +1370,6 @@ document.addEventListener("click", e => {
   }
 
   if ("undo" in t.dataset) { const f = toastUndoFn; hideToast(); if (f) f(); return; }
-  if (t.dataset.mark) {
-    const id = +t.dataset.mark;
-    const c = document.querySelector(`#list .row-container[data-id="${id}"]`);
-    if (c) removeRow(c.querySelector(".row"), c, c.closest(".category-section"), 0, 1, () => commitRow(1, id));
-    return;
-  }
   if ("watched" in t.dataset) {
     const m = sheetMovie;
     if (m) { if (isWatched(m.id)) unmarkWatched(m.id); else markWatched(m); }
