@@ -32,7 +32,34 @@ const ls = {
   get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
 };
-const haptic = (ms = 8) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+// Тактильный отклик. Android: Vibration API. iOS (17.4+): Safari «тикает» при переключении
+// <input type="checkbox" switch>, поэтому программно кликаем по скрытому переключателю.
+let tickLabel = null;
+function iosTick() {
+  try {
+    if (!tickLabel) {
+      tickLabel = document.createElement("label");
+      tickLabel.setAttribute("aria-hidden", "true");
+      tickLabel.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;";
+      const inp = document.createElement("input");
+      inp.type = "checkbox";
+      inp.setAttribute("switch", "");
+      inp.tabIndex = -1;
+      tickLabel.appendChild(inp);
+      document.body.appendChild(tickLabel);
+    }
+    tickLabel.click();
+  } catch (e) {}
+}
+// ms — число (одиночный импульс) или массив-паттерн [вибро, пауза, вибро…]
+const haptic = (ms = 8) => {
+  try { if (navigator.vibrate && navigator.vibrate(ms)) return; } catch (e) {}
+  if (!IS_IOS) return;
+  if (Array.isArray(ms)) {
+    let t = 0;
+    ms.forEach((d, i) => { if (i % 2 === 0) setTimeout(iosTick, t); t += d; });
+  } else iosTick();
+};
 
 function dur(min) {
   if (!min) return "";
@@ -1747,7 +1774,7 @@ function wheelReveal() {
     <button class="reveal-details" id="reveal-details">Подробнее и трейлер</button>`;
   o.appendChild(r);
 
-  try { navigator.vibrate && navigator.vibrate([18, 50, 28]); } catch (e) {}
+  haptic([18, 50, 28]);
 
   const card = r.querySelector("#reveal-card");
   const rect = card.getBoundingClientRect();
