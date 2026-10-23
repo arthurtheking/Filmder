@@ -455,3 +455,43 @@ html.theme-fade, html.theme-fade * { transition: background-color .45s var(--eas
   .wheel-cta small { display: none; }
   .sheet-actions .btn { font-size: 13px; padding: 8px 6px; }
 }
+
+/* ---------- Выход победителя ---------- */
+@keyframes rv-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rv-rays { to { transform: translate(-50%, -50%) rotate(360deg); } }
+@keyframes rv-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(60,187,177,.0), 0 24px 60px rgba(0,0,0,.6), 0 0 40px rgba(60,187,177,.35); } 50% { box-shadow: 0 0 0 10px rgba(60,187,177,.08), 0 24px 60px rgba(0,0,0,.6), 0 0 80px rgba(60,187,177,.6); } }
+@keyframes rv-shine { from { transform: translateX(-130%); } to { transform: translateX(130%); } }
+@keyframes rv-pop { from { opacity: 0; transform: translateY(14px) scale(.7); } to { opacity: 1; transform: none; } }
+@keyframes rv-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+
+.reveal { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; overflow: hidden;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(20px + env(safe-area-inset-bottom, 0px)); color: #fff; text-align: center;
+  background: radial-gradient(ellipse at 50% 38%, rgba(10,30,30,.82), rgba(5,5,8,.95) 70%); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  animation: rv-fade .35s ease backwards; perspective: 900px; }
+.reveal.out { opacity: 0; transition: opacity .25s ease; pointer-events: none; }
+
+.reveal-rays { position: absolute; left: 50%; top: 38%; width: 160vmax; height: 160vmax; transform: translate(-50%, -50%); pointer-events: none;
+  background: repeating-conic-gradient(from 0deg, rgba(60,187,177,.26) 0deg 7deg, transparent 7deg 18deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0, transparent 38%); mask-image: radial-gradient(circle, #000 0, transparent 38%);
+  animation: rv-fade 1s ease .35s backwards, rv-rays 24s linear infinite; }
+
+.reveal-tag { position: relative; padding: 5px 14px; border-radius: 999px; background: var(--user-accent); color: #fff; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; animation: rv-pop .5s var(--spring) .5s backwards; }
+
+.reveal-card { position: relative; flex: none; display: block; width: min(58vw, 250px, calc(44dvh * 2 / 3)); aspect-ratio: 2 / 3; border-radius: 18px; background: var(--surface-2); transform-style: preserve-3d; cursor: pointer;
+  box-shadow: 0 24px 60px rgba(0,0,0,.6); animation: rv-glow 2.6s ease-in-out 1s infinite; }
+.reveal-tilt { position: absolute; inset: 0; display: block; border-radius: 18px; overflow: hidden; border: 2px solid rgba(255,255,255,.85); transition: transform .35s var(--ease); will-change: transform; }
+.reveal-tilt img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.reveal-shine { position: absolute; inset: 0; background: linear-gradient(115deg, transparent 36%, rgba(255,255,255,.5) 50%, transparent 64%); transform: translateX(-130%); animation: rv-shine 1.3s ease-out 1s forwards; }
+
+.reveal-info { position: relative; max-width: 360px; display: flex; flex-direction: column; gap: 4px; animation: rv-up .6s var(--ease) .65s backwards; }
+.reveal-info h3 { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 21px; line-height: 1.2; overflow-wrap: anywhere; text-wrap: balance; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.reveal-info p { margin: 0; font-size: 13px; opacity: .72; font-variant-numeric: tabular-nums; }
+
+.reveal-actions { position: relative; display: flex; gap: 10px; width: min(100%, 360px); animation: rv-up .6s var(--ease) .8s backwards; }
+.reveal-actions .btn { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 10px 12px; font-size: 15px; line-height: 1.15; white-space: normal; }
+.btn.glass { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.35); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.reveal-details { position: relative; padding: 6px 12px; font-size: 13px; color: rgba(255,255,255,.7); text-decoration: underline; text-underline-offset: 3px; animation: rv-fade .6s ease .95s backwards; }
+
+.confetti { position: absolute; z-index: 6; border-radius: 2px; pointer-events: none; will-change: transform, opacity; }
+
+@media (max-height: 640px) { .reveal { gap: 10px; } .reveal-info h3 { font-size: 18px; } }

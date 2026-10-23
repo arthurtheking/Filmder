@@ -985,6 +985,8 @@ function pushLayer() {
 // Шторка закрывается сразу, а history.back() вызывается «вслепую» и его popstate игнорируется.
 // Раньше быстрое закрыть → открыть приводило к тому, что запоздавший popstate закрывал уже новую шторку.
 function closeLayer() {
+  const rv = document.getElementById("wheel-reveal");
+  if (rv && !rv.classList.contains("out")) return hideReveal();
   const w = document.getElementById("wheel-overlay"), ov = $("#overlay");
   if (w && !w.hidden && !w.classList.contains("closing") && !ov.hidden && !ov.classList.contains("closing")) return closeSheetUI();
   hideLayers();
@@ -1528,8 +1530,12 @@ function closeWheelUI() {
 }
 
 function wheelClick(e) {
+  if (e.target.id === "wheel-reveal") return hideReveal();
   const b = e.target.closest("button");
   if (!b || wheelSpinning) return;
+  if (b.id === "reveal-more") { hideReveal(); setTimeout(wheelSpin, 200); return; }
+  if (b.id === "reveal-details" || b.id === "reveal-card") { hideReveal(); openWheelPick(); return; }
+  if (b.id === "reveal-src") { hideReveal(); const m = findMovie(wheelCurrent.id) || wheelCurrent; wheelNext = true; openSheet(m, true); return; }
   if (b.dataset.wtime !== undefined) { wheelOpts.maxRt = +b.dataset.wtime; wheelWon = false; wheelRender(); }
   else if (b.dataset.wgenre !== undefined) { wheelOpts.genre = b.dataset.wgenre; wheelWon = false; wheelRender(); }
   else if (b.id === "wheel-spin") wheelSpin();
@@ -1615,6 +1621,7 @@ function wheelSpin() {
   const pool = wheelPool();
   if (!pool.length) return;
   clearTimeout(wheelOpenTimer);
+  hideReveal();
   if (wheelWon && wheelCurrent) wheelRejected.add(wheelCurrent.id); // «Крутить ещё» = прошлый вариант отклонён
 
   let cands = pool.filter(m => !wheelRejected.has(m.id));
@@ -1673,7 +1680,105 @@ function wheelFinish(m, W) {
   if (frame) { frame.classList.add("won"); burst(frame, "var(--user-accent)", 14); }
   haptic(25);
   wheelUpdateUi();
-  wheelOpenTimer = setTimeout(openWheelPick, 900);
+  wheelOpenTimer = setTimeout(wheelReveal, 750);
+}
+
+/* ---------- Выход победителя ---------- */
+const wheelRevealEl = () => document.getElementById("wheel-reveal");
+
+function hideReveal() {
+  const r = wheelRevealEl();
+  if (!r || r.classList.contains("out")) return;
+  r.classList.add("out");
+  setTimeout(() => r.remove(), 280);
+}
+
+function wheelConfetti(host, cx, cy) {
+  if (RM()) return;
+  const colors = ["#3CBBB1", "#46e0a0", "#ffd166", "#ff7a5c", "#ff6b81", "#ffffff"];
+  for (let i = 0; i < 46; i++) {
+    const p = document.createElement("i");
+    const w = 5 + Math.random() * 5, h = 8 + Math.random() * 8;
+    p.className = "confetti";
+    p.style.cssText = `left:${cx}px;top:${cy}px;width:${w}px;height:${h}px;background:${colors[i % colors.length]};`;
+    host.appendChild(p);
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.15;
+    const d = 140 + Math.random() * 230;
+    const x = Math.cos(a) * d, y = Math.sin(a) * d;
+    const rot = (Math.random() - 0.5) * 900;
+    p.animate([
+      { transform: "translate(0,0) rotate(0deg) scale(.4)", opacity: 1 },
+      { transform: `translate(${x}px,${y}px) rotate(${rot * 0.6}deg) scale(1)`, opacity: 1, offset: 0.45 },
+      { transform: `translate(${x * 1.15}px,${y + 260 + Math.random() * 160}px) rotate(${rot}deg) scale(.9)`, opacity: 0 },
+    ], { duration: 1500 + Math.random() * 900, easing: "cubic-bezier(.2,.7,.4,1)", delay: Math.random() * 120 }).onfinish = () => p.remove();
+  }
+}
+
+function wheelReveal() {
+  const o = wheelEl();
+  if (!o || o.hidden || !wheelCurrent || wheelRevealEl()) return;
+  const m = findMovie(wheelCurrent.id) || wheelCurrent;
+  const url = state.urls[m.id];
+  const poster = TMDB.img(m.poster, "w500");
+  const meta = [m.year, dur(m.runtime), `★ ${(m.rating || 0).toFixed(1)}`].filter(Boolean).join(" · ");
+  const watch = url && validUrl(url)
+    ? `<a class="btn primary" data-watch="${m.id}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ICON_PLAY}Смотреть</a>`
+    : `<button class="btn primary" id="reveal-src">${ICON_PLAY}Смотреть</button>`;
+
+  const thumb = document.querySelector("#wheel-strip .wcell.win .wthumb");
+  const from = thumb ? thumb.getBoundingClientRect() : null;
+
+  const r = document.createElement("div");
+  r.id = "wheel-reveal";
+  r.className = "reveal";
+  r.innerHTML = `<div class="reveal-rays"></div>
+    <div class="reveal-tag">Сегодня смотрим</div>
+    <button class="reveal-card" id="reveal-card" aria-label="Подробнее о фильме">
+      <span class="reveal-tilt">${poster ? `<img src="${poster}" alt="" draggable="false">` : ""}<span class="reveal-shine"></span></span>
+    </button>
+    <div class="reveal-info">
+      <h3>${esc(m.title)}</h3>
+      <p>${esc(meta)}</p>
+    </div>
+    <div class="reveal-actions">
+      <button class="btn glass" id="reveal-more">${ICON_DICE}Крутить ещё</button>
+      ${watch}
+    </div>
+    <button class="reveal-details" id="reveal-details">Подробнее и трейлер</button>`;
+  o.appendChild(r);
+
+  try { navigator.vibrate && navigator.vibrate([18, 50, 28]); } catch (e) {}
+
+  const card = r.querySelector("#reveal-card");
+  const rect = card.getBoundingClientRect();
+  const host = r.getBoundingClientRect();
+  if (!RM() && card.animate) {
+    if (from && from.width) {
+      const dx = from.left + from.width / 2 - (rect.left + rect.width / 2);
+      const dy = from.top + from.height / 2 - (rect.top + rect.height / 2);
+      const s = from.width / rect.width;
+      card.animate([
+        { transform: `translate(${dx}px,${dy}px) scale(${s}) rotate(0deg)` },
+        { transform: `translate(${dx * 0.12}px,${dy * 0.12 - 36}px) scale(1.1) rotate(-5deg)`, offset: 0.68 },
+        { transform: "translate(0,0) scale(1) rotate(0deg)" },
+      ], { duration: 1000, easing: "cubic-bezier(.22,.9,.28,1)", fill: "backwards" });
+    } else anim(card, FX_IN, { duration: 700 });
+    setTimeout(() => {
+      if (wheelRevealEl() !== r) return;
+      wheelConfetti(r, rect.left + rect.width / 2 - host.left, rect.top + rect.height / 2 - host.top);
+      haptic(15);
+    }, 520);
+  }
+
+  // Лёгкий 3D-наклон постера за пальцем / курсором
+  const tilt = card.querySelector(".reveal-tilt");
+  const setTilt = e => {
+    const b = card.getBoundingClientRect();
+    const nx = (e.clientX - b.left) / b.width - 0.5, ny = (e.clientY - b.top) / b.height - 0.5;
+    tilt.style.transform = `rotateY(${(nx * 22).toFixed(1)}deg) rotateX(${(-ny * 22).toFixed(1)}deg)`;
+  };
+  card.addEventListener("pointermove", setTilt);
+  ["pointerleave", "pointerup", "pointercancel"].forEach(ev => card.addEventListener(ev, () => { tilt.style.transform = ""; }));
 }
 
 function openWheelPick() {
