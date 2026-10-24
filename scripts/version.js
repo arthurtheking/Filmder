@@ -1,1 +1,1 @@
-window.APP_VERSION = { version: "0.3.48", sha: "09e2792", date: "2026-10-24" };
+window.APP_VERSION = { version: "0.3.50", sha: "6471f4a", date: "2026-10-24" };
