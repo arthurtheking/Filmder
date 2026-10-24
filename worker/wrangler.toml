@@ -4,10 +4,10 @@ compatibility_date = "2025-01-01"
 
 [[kv_namespaces]]
 binding = "SYNC"
-id = "ВСТАВЬТЕ_ID_ИЗ_КОМАНДЫ_kv_namespace_create"
+id = "5125935e7c7742b2a7547423f5948c95"
 
 [vars]
-ALLOWED_ORIGIN = "https://ВАШ-САЙТ"
+ALLOWED_ORIGIN = "https://arthurtheking.github.io"
 
 [[durable_objects.bindings]]
 name = "ROOM"
