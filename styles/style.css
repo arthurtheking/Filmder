@@ -46,11 +46,12 @@ html.light {
 /* Фон на html, чтобы он закрашивал и safe-зоны (вырез, home-индикатор) и попадал в анимацию смены темы */
 html { background-color: var(--bg); }
 html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-@supports (height: 100dvh) { html, body { height: 100dvh; } }
+/* Тело прибито к реальным краям экрана вместе с нижней safe-зоной: fixed на iOS всегда растягивается до края, а 100%/100dvh иногда нет */
+body { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: auto; }
 
 body {
   background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.45;
-  padding: calc(14px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-left, 0px)) max(8px, calc(env(safe-area-inset-bottom, 0px) - 8px)) max(16px, env(safe-area-inset-right, 0px));
+  padding: calc(14px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-left, 0px)) 6px max(16px, env(safe-area-inset-right, 0px));
   -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased;
 }
 
@@ -580,7 +581,7 @@ html.rv-open { background-color: var(--rv-base); }
 /* Размытый фон из постера текущего фильма */
 .wf-bgs { inset: 0; overflow: hidden; pointer-events: none; }
 /* Всего два слоя, которые перекрёстно сменяют друг друга (раньше было по слою с блюром на каждый постер — тяжело для GPU) */
-.wf-bgs i { position: absolute; inset: -14%; background-size: cover; background-position: center; filter: blur(34px) saturate(1.5); opacity: 0; transform: scale(1.1); transition: opacity .6s ease; }
+.wf-bgs i { position: absolute; left: -5%; top: -5%; width: 30%; height: 30%; background-size: cover; background-position: center; filter: blur(8px) saturate(1.5); opacity: 0; transform: scale(3.67); transform-origin: 0 0; transition: opacity .6s ease; will-change: transform, opacity; }
 .wf-bgs i.on { opacity: .5; }
 .wheel-fs.spinning .wf-bgs i { transition-duration: .25s; }
 /* Пока постер «летит» на победный экран, центральная карточка карусели скрыта */
@@ -616,7 +617,7 @@ html.rv-open { background-color: var(--rv-base); }
   box-shadow: 0 14px 30px rgba(0,0,0,.55); transition: box-shadow .3s var(--ease), border-color .2s; }
 .cc-face img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 .cc-ph { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-display); font-size: 40px; color: #fff; }
-.cc-shade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 1; }
+.cc-shade { will-change: opacity; position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 1; }
 .cc-out { position: absolute; inset: 0; z-index: 2; display: none; place-items: center; background: rgba(6,8,12,.7); color: #fff; font-size: calc(var(--cw) * .42); }
 .cc.out .cc-out { display: grid; }
 .cc.front .cc-face { border-color: #fff; box-shadow: 0 0 0 2px color-mix(in srgb, var(--glow) 85%, #fff), 0 0 40px color-mix(in srgb, var(--glow) 70%, transparent), 0 18px 36px rgba(0,0,0,.6); }
@@ -637,7 +638,7 @@ html.rv-open { background-color: var(--rv-base); }
 .wheel-actions .btn { flex: 1 1 0; min-height: 58px; font-size: 17px; font-weight: 600; }
 .wheel-actions .btn svg { width: 22px; height: 22px; flex: none; }
 .wheel-actions #wheel-open { flex: 0 0 38%; font-size: 15px; animation: wl-pop .4s var(--ease) backwards; }
-#wheel-spin { overflow: hidden; animation: spin-glow 2.4s ease-in-out infinite; -webkit-touch-callout: none; }
+#wheel-spin { overflow: hidden; box-shadow: 0 8px 26px color-mix(in srgb, var(--user-accent) 55%, transparent); -webkit-touch-callout: none; }
 #wheel-spin[disabled] { animation: none; }
 #wheel-spin .lbl { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 8px; }
 #wheel-spin::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--p, 0) * 100%); background: rgba(255,255,255,.34); opacity: 0; }
