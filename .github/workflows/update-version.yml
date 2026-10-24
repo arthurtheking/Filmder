@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BASE: "0.2.3"
+  BASE: "0.3"
 
 jobs:
   version:
