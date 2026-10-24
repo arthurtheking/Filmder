@@ -20,6 +20,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;700&family=Onest:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="styles/style.css">
+  <link rel="stylesheet" href="styles/backup.css">
 </head>
 <body>
 
@@ -60,6 +61,11 @@
         <button class="seg-btn" role="tab" id="seg-watched" aria-selected="false">Просмотрено <i id="seg-watched-n">0</i></button>
       </div>
       <div class="list-wrap" id="list"></div>
+      <div class="backup-bar">
+        <button class="btn ghost small" id="btn-export">Сохранить копию</button>
+        <button class="btn ghost small" id="btn-import">Загрузить копию</button>
+        <input type="file" id="import-file" accept=".json,application/json" hidden>
+      </div>
     </section>
 
     <nav class="tabs" role="tablist">
@@ -120,6 +126,18 @@
   <script src="scripts/config.js"></script>
   <script src="scripts/tmdb.js"></script>
   <script src="scripts/version.js"></script>
-  <script src="scripts/app.js"></script>
+  <script src="scripts/core.js"></script>
+  <script src="scripts/state.js"></script>
+  <script src="scripts/theme.js"></script>
+  <script src="scripts/fx.js"></script>
+  <script src="scripts/deck.js"></script>
+  <script src="scripts/swipe.js"></script>
+  <script src="scripts/toast.js"></script>
+  <script src="scripts/list.js"></script>
+  <script src="scripts/layers.js"></script>
+  <script src="scripts/sheet.js"></script>
+  <script src="scripts/wheel.js"></script>
+  <script src="scripts/backup.js"></script>
+  <script src="scripts/main.js"></script>
 </body>
 </html>
