@@ -9,7 +9,10 @@ const MAX_BODY = 1_000_000;
 export default {
   async fetch(req, env) {
     const origin = req.headers.get("Origin") || "";
-    const allowed = env.ALLOWED_ORIGIN || "*";
+    // ALLOWED_ORIGIN — один адрес или несколько через запятую, либо "*"
+    const list = (env.ALLOWED_ORIGIN || "*").split(",").map(x => x.trim().replace(/\/+$/, "")).filter(Boolean);
+    const any = list.includes("*");
+    const allowed = any ? "*" : list.includes(origin) ? origin : list[0];
     const cors = {
       "Access-Control-Allow-Origin": allowed,
       "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
@@ -23,7 +26,7 @@ export default {
 
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     // Браузеры с чужих сайтов отсекаются; прямые запросы без Origin (curl) проходят — защита от случайного, не от целенаправленного
-    if (allowed !== "*" && origin && origin !== allowed) return reply({ error: "origin" }, 403);
+    if (!any && origin && !list.includes(origin)) return reply({ error: "origin" }, 403);
 
     const url = new URL(req.url);
 
@@ -50,8 +53,13 @@ export default {
       if (req.method !== "GET" || !TMDB_OK.test(path)) return reply({ error: "not allowed" }, 403);
       const target = new URL(TMDB + path);
       url.searchParams.forEach((v, k) => { if (k !== "api_key") target.searchParams.set(k, v); });
+      // Длинный токен (eyJ…) идёт заголовком Bearer, короткий ключ v3 — параметром api_key
+      const tok = (env.TMDB_TOKEN || "").trim();
+      const headers = {};
+      if (tok.startsWith("eyJ")) headers.Authorization = "Bearer " + tok;
+      else target.searchParams.set("api_key", tok);
       const res = await fetch(target, {
-        headers: { Authorization: "Bearer " + env.TMDB_TOKEN },
+        headers,
         cf: { cacheEverything: true, cacheTtl: 3600 },
       });
       return new Response(res.body, {

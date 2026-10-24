@@ -7,7 +7,7 @@ binding = "SYNC"
 id = "5125935e7c7742b2a7547423f5948c95"
 
 [vars]
-ALLOWED_ORIGIN = "https://arthurtheking.github.io"
+ALLOWED_ORIGIN = "https://arthurtheking.github.io,http://localhost:5500"
 
 [[durable_objects.bindings]]
 name = "ROOM"
