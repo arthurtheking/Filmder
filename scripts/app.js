@@ -1611,8 +1611,7 @@ function wheelClick(e) {
   const b = e.target.closest("button");
   if (!b || wheelSpinning) return;
   if (b.id === "reveal-more") { hideReveal(); setTimeout(() => wheelSpin(), 200); return; }
-  if (b.id === "reveal-details" || b.id === "reveal-card") { hideReveal(); openWheelPick(); return; }
-  if (b.id === "reveal-src") { hideReveal(); const m = findMovie(wheelCurrent.id) || wheelCurrent; wheelNext = true; openSheet(m, true); return; }
+  if (b.id === "reveal-watch" || b.id === "reveal-card") { hideReveal(); openWheelPick(); return; }
   if (b.dataset.wtime !== undefined) { wheelOpts.maxRt = +b.dataset.wtime; wheelWon = false; wheelRender(); }
   else if (b.dataset.wgenre !== undefined) { wheelOpts.genre = b.dataset.wgenre; wheelWon = false; wheelRender(); }
   else if (b.id === "wheel-spin") { if (wheelSwallow) { wheelSwallow = false; return; } wheelSpin(); }
@@ -1643,24 +1642,33 @@ function wheelRender(intro) {
 
   cancelAnimationFrame(wheelRaf);
   clearTimeout(wheelOpenTimer);
+  const token = ++wheelIntroToken;
   wheelCurrent = null; wheelWinIdx = -1;
   wheelBuildCards();
   wheelUpdateUi();
 
-  // Появление: карусель «заезжает» слева и мягко тормозит на первом постере
+  // Появление: карусель «заезжает» слева и мягко тормозит на первом постере.
+  // Старт — только после декодирования постеров и пока шторка закончила открываться, без тактильных «тиков».
   if (intro && !RM() && wheelSegs.length > 1) {
     wheelPos = -2.8;
     wheelApply(false);
-    wheelTween(0, 1100, t => easeOut(t, 3.2));
+    const imgs = [...document.querySelectorAll("#wheel-track img")].map(im => (im.decode ? im.decode().catch(() => {}) : Promise.resolve()));
+    Promise.race([Promise.all(imgs), wait(700)]).then(() => wait(120)).then(() => {
+      if (token !== wheelIntroToken || !$("#wheel-fs") || wheelSpinning || wheelDragging) return;
+      requestAnimationFrame(() => wheelTween(0, 1400, t => easeOut(t, 3), null, false));
+    });
   }
 }
 
 // Набор постеров: весь пул, если он влезает, иначе случайная выборка из ещё не отклонённых
+// Отклонённые фильмы (с крестиком) остаются в карусели и крутятся вместе с остальными
 function wheelBuildSegs() {
   const pool = wheelPool();
   let cands = pool.filter(m => !wheelRejected.has(m.id));
   if (!cands.length) { wheelRejected.clear(); cands = pool; }
-  wheelSegs = pool.length <= WHEEL_MAX ? shuffleArr(pool) : shuffleArr(cands).slice(0, WHEEL_MAX);
+  if (pool.length <= WHEEL_MAX) { wheelSegs = shuffleArr(pool); return; }
+  const rej = pool.filter(m => wheelRejected.has(m.id)).slice(0, 6);
+  wheelSegs = shuffleArr(shuffleArr(cands).slice(0, WHEEL_MAX - rej.length).concat(rej));
 }
 
 function wheelBuildCards() {
@@ -1676,9 +1684,12 @@ function wheelBuildCards() {
   wheelEls = [...track.children];
   wheelEls.forEach(el => { el._shade = el.querySelector(".cc-shade"); });
 
-  // Размытый фон: по слою на постер, переключаем только прозрачность — без перерисовки блюра
-  bgs.innerHTML = wheelSegs.map(m => m.poster ? `<i style="background-image:url('${TMDB.img(m.poster, "w185")}')"></i>` : `<i></i>`).join("");
+  // Размытый фон: всего два слоя, которые плавно сменяют друг друга
+  wheelBgUrls = wheelSegs.map(m => (m.poster ? TMDB.img(m.poster, "w185") : null));
+  wheelBgUrls.forEach(u => { if (u) { const im = new Image(); im.src = u; } });
+  bgs.innerHTML = `<i></i><i></i>`;
   wheelBgs = [...bgs.children];
+  wheelBgIdx = -1; wheelBgFlip = 0; clearTimeout(wheelBgTimer);
   dots.innerHTML = wheelSegs.length > 1 ? wheelSegs.map(() => "<i></i>").join("") : "";
   wheelDots = [...dots.children];
 
@@ -1737,7 +1748,7 @@ function wheelApply(live) {
   if (k === wheelLastIdx) return;
   wheelLastIdx = k;
   wheelEls.forEach((c, i) => c.classList.toggle("front", i === k));
-  wheelBgs.forEach((b, i) => b.classList.toggle("on", i === k));
+  wheelShowBg(k);
   wheelDots.forEach((d, i) => d.classList.toggle("on", i === k));
   const fs = $("#wheel-fs");
   if (fs) fs.style.setProperty("--glow", WHEEL_COLORS[k % WHEEL_COLORS.length]);
@@ -1748,15 +1759,35 @@ function wheelApply(live) {
   }
 }
 
+let wheelBgUrls = [], wheelBgIdx = -1, wheelBgFlip = 0, wheelBgTimer = 0, wheelBgLast = 0, wheelIntroToken = 0;
+
+// Меняет фон-размытие не чаще раза в ~140 мс, чтобы быстрая прокрутка не дёргала GPU
+function wheelShowBg(k) {
+  if (wheelBgs.length < 2) return;
+  clearTimeout(wheelBgTimer);
+  const go = () => {
+    if (wheelBgIdx === k) return;
+    wheelBgIdx = k;
+    wheelBgFlip ^= 1;
+    const on = wheelBgs[wheelBgFlip], off = wheelBgs[wheelBgFlip ^ 1];
+    on.style.backgroundImage = wheelBgUrls[k] ? `url('${wheelBgUrls[k]}')` : "none";
+    on.classList.add("on");
+    off.classList.remove("on");
+    wheelBgLast = performance.now();
+  };
+  const gap = performance.now() - wheelBgLast;
+  if (gap >= 140) go(); else wheelBgTimer = setTimeout(go, 140 - gap);
+}
+
 // Универсальная анимация позиции: to — конечная позиция, ease — функция 0..1
-function wheelTween(to, ms, ease, done) {
+function wheelTween(to, ms, ease, done, live = true) {
   cancelAnimationFrame(wheelRaf);
   if (RM()) { wheelPos = to; wheelApply(false); if (done) done(); return; }
   const from = wheelPos, t0 = performance.now();
   const step = now => {
     const t = Math.min((now - t0) / ms, 1);
     wheelPos = from + (to - from) * ease(t);
-    wheelApply(true);
+    wheelApply(live);
     if (t < 1) wheelRaf = requestAnimationFrame(step);
     else if (done) done();
   };
@@ -1902,11 +1933,11 @@ function wheelSpin(opts) {
   hideReveal();
   if (wheelWon && wheelCurrent) wheelRejected.add(wheelCurrent.id); // «Крутить ещё» = прошлый вариант отклонён
   wheelWon = false; wheelWinIdx = -1;
-  if (pool.length > WHEEL_MAX) wheelBuildCards();
-  else {
-    if (pool.every(m => wheelRejected.has(m.id))) wheelRejected.clear();
-    wheelMarkRejected();
-  }
+  if (pool.every(m => wheelRejected.has(m.id))) wheelRejected.clear();
+  // Карусель пересобираем только если живых вариантов в ней почти не осталось — иначе она не «прыгает»
+  const alive = wheelSegs.filter(m => !wheelRejected.has(m.id)).length;
+  if (pool.length > WHEEL_MAX && alive < 3) wheelBuildCards();
+  else wheelMarkRejected();
 
   const n = wheelSegs.length;
   const cands = wheelSegs.map((m, i) => i).filter(i => !wheelRejected.has(wheelSegs[i].id));
@@ -1938,7 +1969,7 @@ function wheelFinish(k) {
   const st = $("#wheel-stage");
   if (st) burst(st, "var(--user-accent)", 18);
   haptic([20, 40, 30]);
-  wheelOpenTimer = setTimeout(wheelReveal, 1100);
+  wheelOpenTimer = setTimeout(wheelReveal, 900);
 }
 
 /* ---------- Выход победителя ---------- */
@@ -2065,6 +2096,8 @@ const wheelRevealEl = () => document.getElementById("wheel-reveal");
 function hideReveal() {
   const r = wheelRevealEl();
   if (!r || r.classList.contains("out")) return;
+  const fs = document.getElementById("wheel-fs");
+  if (fs) fs.classList.remove("lift");
   r.classList.add("out");
   setTimeout(() => {
     r.remove();
@@ -2102,14 +2135,12 @@ function wheelReveal() {
   const url = state.urls[m.id];
   const poster = TMDB.img(m.poster, "w500");
   const meta = [m.year, dur(m.runtime), `★ ${(m.rating || 0).toFixed(1)}`].filter(Boolean).join(" · ");
-  const watch = url && validUrl(url)
-    ? `<a class="btn primary" data-watch="${m.id}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ICON_PLAY}Смотреть</a>`
-    : `<button class="btn primary" id="reveal-src">${ICON_PLAY}Смотреть</button>`;
-
   // Постер «вылетает» из центральной карточки карусели
   const fc = document.querySelector("#wheel-track .cc.front .cc-face");
   const sr = fc ? fc.getBoundingClientRect() : null;
   const from = sr ? { left: sr.left, top: sr.top, width: sr.width, height: sr.height } : null;
+  const fsEl = document.getElementById("wheel-fs");
+  if (fsEl) fsEl.classList.add("lift"); // карточка в карусели скрывается — вместо неё летит копия
 
   const r = document.createElement("div");
   r.id = "wheel-reveal";
@@ -2126,10 +2157,9 @@ function wheelReveal() {
       <p>${esc(meta)}</p>
     </div>
     <div class="reveal-actions">
+      <button class="btn primary" id="reveal-watch">${ICON_PLAY}К просмотру</button>
       <button class="btn glass" id="reveal-more">${ICON_DICE}Крутить ещё</button>
-      ${watch}
-    </div>
-    <button class="reveal-details" id="reveal-details">Подробнее и трейлер</button>`;
+    </div>`;
   o.appendChild(r);
   revealBarsOn(bg.base);
 
@@ -2144,16 +2174,15 @@ function wheelReveal() {
       const dy = from.top + from.height / 2 - (rect.top + rect.height / 2);
       const s = from.width / rect.width;
       card.animate([
-        { transform: `translate(${dx}px,${dy}px) scale(${s}) rotate(0deg)` },
-        { transform: `translate(${dx * 0.12}px,${dy * 0.12 - 36}px) scale(1.1) rotate(-5deg)`, offset: 0.68 },
-        { transform: "translate(0,0) scale(1) rotate(0deg)" },
-      ], { duration: 1000, easing: "cubic-bezier(.22,.9,.28,1)", fill: "backwards" });
+        { transform: `translate(${dx}px,${dy}px) scale(${s})` },
+        { transform: "translate(0,0) scale(1)" },
+      ], { duration: 900, easing: "cubic-bezier(.25,.85,.3,1)", fill: "backwards" });
     } else anim(card, FX_IN, { duration: 700 });
     setTimeout(() => {
       if (wheelRevealEl() !== r) return;
       wheelConfetti(r, rect.left + rect.width / 2 - host.left, rect.top + rect.height / 2 - host.top);
       haptic(15);
-    }, 520);
+    }, 700);
   }
 
   // Лёгкий 3D-наклон постера за пальцем / курсором

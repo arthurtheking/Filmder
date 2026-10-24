@@ -50,7 +50,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: non
 
 body {
   background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.45;
-  padding: calc(14px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-left, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-right, 0px));
+  padding: calc(14px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-left, 0px)) max(8px, calc(env(safe-area-inset-bottom, 0px) - 8px)) max(16px, env(safe-area-inset-right, 0px));
   -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased;
 }
 
@@ -442,11 +442,11 @@ html.theme-fade, html.theme-fade * { transition: background-color .45s var(--eas
 .reveal { position: fixed; top: -2px; left: -2px; right: -2px; bottom: -2px; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; overflow: hidden;
   padding: calc(26px + env(safe-area-inset-top, 0px)) 22px calc(22px + env(safe-area-inset-bottom, 0px)); color: #fff; text-align: center;
   background: var(--rv-base, #05050a);
-  animation: rv-fade .35s ease backwards; perspective: 900px; }
+  animation: rv-fade .5s ease backwards; perspective: 900px; }
 @supports (height: 100lvh) { .reveal { min-height: calc(100lvh + 4px); } }
 .reveal.out { opacity: 0; transition: opacity .25s ease; pointer-events: none; }
 
-.reveal-tag { position: relative; padding: 5px 14px; border-radius: 999px; background: rgba(255,255,255,.14); border: 1px solid color-mix(in srgb, var(--c1, #3CBBB1) 70%, #fff 10%); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); color: #fff; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; animation: rv-pop .5s var(--spring) .5s backwards; }
+.reveal-tag { position: relative; padding: 5px 14px; border-radius: 999px; background: rgba(255,255,255,.18); border: 1px solid color-mix(in srgb, var(--c1, #3CBBB1) 70%, #fff 10%); color: #fff; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; animation: rv-pop .5s var(--spring) .5s backwards; }
 
 .reveal-card { position: relative; flex: none; display: block; width: min(58vw, 250px, calc(44dvh * 2 / 3)); aspect-ratio: 2 / 3; border-radius: 18px; background: var(--surface-2); transform-style: preserve-3d; cursor: pointer;
   box-shadow: 0 24px 60px rgba(0,0,0,.6); animation: rv-glow 2.6s ease-in-out 1s infinite; }
@@ -460,8 +460,7 @@ html.theme-fade, html.theme-fade * { transition: background-color .45s var(--eas
 
 .reveal-actions { position: relative; display: flex; gap: 10px; width: min(100%, 360px); animation: rv-up .6s var(--ease) .8s backwards; }
 .reveal-actions .btn { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 10px 12px; font-size: 15px; line-height: 1.15; white-space: normal; }
-.btn.glass { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.35); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-.reveal-details { position: relative; padding: 6px 12px; font-size: 13px; color: rgba(255,255,255,.7); text-decoration: underline; text-underline-offset: 3px; animation: rv-fade .6s ease .95s backwards; }
+.btn.glass { background: rgba(255,255,255,.18); color: #fff; border-color: rgba(255,255,255,.35); }
 
 .confetti { position: absolute; z-index: 6; border-radius: 2px; pointer-events: none; will-change: transform, opacity; }
 
@@ -470,7 +469,9 @@ html.theme-fade, html.theme-fade * { transition: background-color .45s var(--eas
 /* ---------- Версия приложения ---------- */
 .app-version { flex: none; margin-top: -4px; text-align: center; font-size: 11px; line-height: 1.2; letter-spacing: .02em; color: var(--muted); opacity: .75; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* ---------- Safe-зоны под победным экраном ---------- */
-html.rv-open .safe-cap { background: var(--rv-base); transition: background-color .35s ease; }
+/* Пока открыты карусель / победный экран, «крышка» убирается совсем: фон экрана продолжается в safe-зонах */
+html.rv-open .safe-cap { display: none; }
+html.rv-open { background-color: var(--rv-base); }
 
 /* ---------- Случайные фоны победного экрана ---------- */
 @keyframes rb-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
@@ -569,7 +570,8 @@ html.rv-open .safe-cap { background: var(--rv-base); transition: background-colo
 @keyframes spin-glow { 0%, 100% { box-shadow: 0 8px 22px color-mix(in srgb, var(--user-accent) 40%, transparent); } 50% { box-shadow: 0 8px 30px color-mix(in srgb, var(--user-accent) 75%, transparent); } }
 @keyframes wl-pop { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 
-.wheel-backdrop { z-index: 19; background: #07080c; align-items: stretch; justify-content: center; }
+.wheel-backdrop { z-index: 19; background: #07080c; align-items: stretch; justify-content: center; inset: -2px; }
+@supports (height: 100lvh) { .wheel-backdrop { min-height: calc(100lvh + 4px); } }
 .wheel-fs { --glow: #2fb3a8; position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; color: #fff;
   padding-top: calc(8px + env(safe-area-inset-top, 0px)); padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 .wheel-fs > * { position: relative; z-index: 1; }
@@ -577,15 +579,18 @@ html.rv-open .safe-cap { background: var(--rv-base); transition: background-colo
 
 /* Размытый фон из постера текущего фильма */
 .wf-bgs { inset: 0; overflow: hidden; pointer-events: none; }
-.wf-bgs i { position: absolute; inset: -14%; background-size: cover; background-position: center; filter: blur(44px) saturate(1.5); opacity: 0; transform: scale(1.1); transition: opacity .6s ease; will-change: opacity; }
+/* Всего два слоя, которые перекрёстно сменяют друг друга (раньше было по слою с блюром на каждый постер — тяжело для GPU) */
+.wf-bgs i { position: absolute; inset: -14%; background-size: cover; background-position: center; filter: blur(34px) saturate(1.5); opacity: 0; transform: scale(1.1); transition: opacity .6s ease; }
 .wf-bgs i.on { opacity: .5; }
-.wheel-fs.spinning .wf-bgs i { transition-duration: .22s; }
+.wheel-fs.spinning .wf-bgs i { transition-duration: .25s; }
+/* Пока постер «летит» на победный экран, центральная карточка карусели скрыта */
+.wheel-fs.lift .cc.front .cc-face { opacity: 0; transition: none; }
 .wf-bgs::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(7,8,12,.5), rgba(7,8,12,.12) 38%, rgba(7,8,12,.5) 72%, #07080c); }
 
 .wf-top { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 4px 14px; }
 .wf-title { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: 16px; text-align: center; }
 .wf-x, .wf-sp { flex: none; width: 40px; height: 40px; }
-.wf-x { border-radius: 50%; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); color: #fff; display: grid; place-items: center; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: transform var(--t-base) var(--spring); }
+.wf-x { border-radius: 50%; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); color: #fff; display: grid; place-items: center; transition: transform var(--t-base) var(--spring); }
 .wf-x:active { transform: scale(.9); }
 
 /* Фильтры: две строки чипов; пока места много — по центру, иначе прокручиваются */
@@ -595,8 +600,8 @@ html.rv-open .safe-cap { background: var(--rv-base); transition: background-colo
 .wheel-chips > :first-child { margin-left: auto; }
 .wheel-chips > :last-child { margin-right: auto; }
 .wheel-fs.spinning .wheel-chips { opacity: .35; pointer-events: none; }
-.wchip { flex: none; padding: 8px 14px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); font-size: 13px; color: rgba(255,255,255,.78); white-space: nowrap;
-  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast), transform var(--t-base) var(--spring); }
+.wchip { flex: none; padding: 8px 14px; border-radius: 999px; background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.16); font-size: 13px; color: rgba(255,255,255,.78); white-space: nowrap;
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast), transform var(--t-base) var(--spring); }
 .wchip:active { transform: scale(.94); }
 .wchip[aria-pressed="true"] { background: var(--user-accent); border-color: var(--user-accent); color: #fff; font-weight: 600; }
 
