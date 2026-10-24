@@ -58,6 +58,12 @@ function bindDrag(el, m) {
 
 function fly(el, m, dir) {
   if (busy) return;
+  if (dir > 0 && typeof duelBlocks === "function" && duelBlocks()) { // слоты дуэли заняты — карточка возвращается
+    el.style.transition = `transform .5s ${SPRING}`;
+    el.style.transform = tf(0);
+    el.querySelectorAll(".stamp").forEach(x => (x.style.opacity = 0));
+    return;
+  }
   busy = true;
   haptic();
   const cards = [...$("#stage").querySelectorAll(".card")];
@@ -117,10 +123,11 @@ function advanceStack() {
 
 function decide(m, dir) {
   deck = deck.filter(d => d.id !== m.id);
+  const inDuel = dir > 0 && typeof duelActive === "function" && duelActive();
   if (dir > 0) {
-    state.liked.push(snap(m));
+    if (inDuel) duelPick(snap(m));
+    else { state.liked.push(snap(m)); loadRuntime(m.id); }
     burst($("#btn-like"), "var(--like)", 8);
-    loadRuntime(m.id);
   } else {
     passed.add(m.id);
     burst($("#btn-nope"), "var(--nope)", 4);
@@ -130,7 +137,7 @@ function decide(m, dir) {
   save();
   advanceStack();
   refreshList();
-  if (dir > 0) showToast({ sub: "Добавлено в мой вечер", title: m.title, id: m.id, undo });
+  if (dir > 0) showToast({ sub: inDuel ? "Добавлено в дуэль" : "Добавлено в мой вечер", title: m.title, id: m.id, undo });
   preloadDeck();
   topUp();
 }
@@ -152,6 +159,7 @@ function undo() {
   if (!last) return;
   const id = last.movie.id;
   state.liked = state.liked.filter(m => m.id !== id);
+  if (typeof duelUnpick === "function") duelUnpick(id);
   passed.delete(id);
   deck = deck.filter(d => d.id !== id);
   deck.unshift(last.movie);

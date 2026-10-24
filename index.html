@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;700&family=Onest:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="styles/style.css">
   <link rel="stylesheet" href="styles/backup.css">
+  <link rel="stylesheet" href="styles/duel.css">
 </head>
 <body>
 
@@ -33,6 +34,7 @@
         <input type="checkbox" id="theme-switch-input">
         <span class="ios-slider"></span>
       </label>
+      <button class="filter-btn" id="btn-duel" aria-label="Дуэль"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2M14.5 6.5 18 3h3v3l-3.5 3.5M5 14l4 4M7 17l-3 3M5 19l-2 2"/></svg></button>
       <button class="filter-btn" id="btn-open-filters" aria-label="Фильтры жанров">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
         <span>Фильтры</span>
@@ -41,6 +43,7 @@
     </header>
 
     <section class="view" id="view-swipe">
+      <div class="duel-bar" id="duel-bar" hidden></div>
       <div class="stage" id="stage"></div>
       <div class="actions">
         <button class="round small undo" id="btn-undo" aria-label="Вернуть предыдущий фильм">
@@ -62,6 +65,7 @@
       </div>
       <div class="list-wrap" id="list"></div>
       <div class="backup-bar">
+        <button class="btn ghost small" id="btn-sync">Синхронизация</button>
         <button class="btn ghost small" id="btn-export">Сохранить копию</button>
         <button class="btn ghost small" id="btn-import">Загрузить копию</button>
         <input type="file" id="import-file" accept=".json,application/json" hidden>
@@ -110,7 +114,7 @@
       <h2>Нужен ключ TMDB</h2>
       <ol>
         <li>Откройте файл <code>config.js</code> в блокноте.</li>
-        <li>Вставьте ключ между кавычками: <code>TMDB_KEY: "ваш_ключ"</code>.</li>
+        <li>Впишите адрес прокси: <code>PROXY_URL: "https://…workers.dev"</code> (см. DEPLOY.md) или, без прокси, ключ: <code>TMDB_KEY: "ваш_ключ"</code>.</li>
         <li>Сохраните файл и обновите эту страницу.</li>
       </ol>
       <p>Ключ берётся на themoviedb.org в разделе Settings → API.</p>
@@ -138,6 +142,8 @@
   <script src="scripts/sheet.js"></script>
   <script src="scripts/wheel.js"></script>
   <script src="scripts/backup.js"></script>
+  <script src="scripts/sync.js"></script>
+  <script src="scripts/duel.js"></script>
   <script src="scripts/main.js"></script>
 </body>
 </html>

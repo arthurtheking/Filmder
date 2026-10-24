@@ -51,6 +51,7 @@ document.addEventListener("click", e => {
     case "btn-retry": if (!genres.length) return boot(); paging = newPaging(); return refill("init");
     case "btn-reset": passed.clear(); history_ = []; save(); paging = newPaging(); return refill("filter");
     case "src-save": return saveSrc();
+    case "btn-sync": return syncDialog();
     case "btn-export": return exportBackup();
     case "btn-import": { const f = $("#import-file"); if (f) f.click(); return; }
   }
@@ -175,12 +176,14 @@ async function boot() {
   renderSwipe("init");
   checkTutorial();
   checkPending();
+  syncRun();
+  duelResume();
 }
 
 function startApp() {
   if (appStarted) return;
   appStarted = true;
-  if (!(CONFIG.TMDB_KEY || "").trim()) { $("#setup").hidden = false; return; }
+  if (!(CONFIG.PROXY_URL || "").trim() && !(CONFIG.TMDB_KEY || "").trim()) { $("#setup").hidden = false; return; }
   boot();
 }
 

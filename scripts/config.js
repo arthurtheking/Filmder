@@ -1,5 +1,8 @@
 const CONFIG = {
-  TMDB_KEY: "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJjNTc0MzYxNjQwZTYwZDg4OGU0YjkzYjY3OTk4ODM0ZCIsIm5iZiI6MTc5MjMzMjMxMC4yMjEsInN1YiI6IjZhZDRkMjE2MzkxYWIyNzllYzc5NzU5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.F5L3y6rn__d7R11RiWCpeaXVGEqNmNOkN77e8a2w4EI",
+  // Адрес вашего Worker (см. DEPLOY.md). Токен TMDB хранится только там.
+  PROXY_URL: "",
+  // Запасной вариант без прокси (ключ будет виден всем): вставьте сюда ключ и оставьте PROXY_URL пустым
+  TMDB_KEY: "",
   LANGUAGE: "ru-RU",
   MIN_VOTES: 300,
   MAX_PAGES: 40,

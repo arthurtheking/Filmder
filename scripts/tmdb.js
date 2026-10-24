@@ -1,5 +1,6 @@
 const TMDB = (() => {
-  const API = "https://api.themoviedb.org/3";
+  const PROXY = (CONFIG.PROXY_URL || "").trim().replace(/\/+$/, "");
+  const API = PROXY ? PROXY + "/tmdb" : "https://api.themoviedb.org/3";
   const IMG = "https://image.tmdb.org/t/p";
   const CACHE_LIMIT = 200;
 
@@ -47,8 +48,10 @@ const TMDB = (() => {
 
     const key = (CONFIG.TMDB_KEY || "").trim();
     const headers = {};
-    if (key.startsWith("eyJ")) headers.Authorization = "Bearer " + key;
-    else url.searchParams.set("api_key", key);
+    if (!PROXY) {
+      if (key.startsWith("eyJ")) headers.Authorization = "Bearer " + key;
+      else url.searchParams.set("api_key", key);
+    }
 
     const id = url.toString();
     if (cache.has(id)) return cache.get(id);

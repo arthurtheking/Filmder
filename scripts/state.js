@@ -20,7 +20,10 @@ const saveNow = () => ls.set(STORE_KEY, JSON.stringify({
   passed: [...passed].slice(-PASSED_LIMIT),
 }));
 let saveTimer = 0;
-const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400); };
+const save = () => {
+  clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400);
+  if (typeof syncMarkDirty === "function") syncMarkDirty();
+};
 addEventListener("pagehide", saveNow);
 document.addEventListener("visibilitychange", () => { if (document.hidden) saveNow(); });
 
