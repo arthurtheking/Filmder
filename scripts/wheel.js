@@ -463,6 +463,7 @@ function wheelSpin(opts) {
   const n = wheelSegs.length;
   const cands = wheelSegs.map((m, i) => i).filter(i => !wheelRejected.has(wheelSegs[i].id));
   const k = cands[Math.floor(Math.random() * cands.length)];
+  wheelPreloadWinner(wheelSegs[k]);
   wheelSpinning = true;
   wheelUpdateUi();
 
@@ -475,6 +476,16 @@ function wheelSpin(opts) {
   let delta = dir > 0 ? mod(k - wheelPos, n) : mod(wheelPos - k, n);
   while (delta < T) delta += n;
   wheelTween(wheelPos + dir * delta, 2400 + T * 45, t => easeOut(t, 3.4), () => wheelFinish(k));
+}
+
+// Большой постер победного экрана грузим и декодируем заранее, пока карусель крутится,
+// иначе при подмене карточки на копию в «Сегодня смотрим» постер на пару кадров мигает пустым
+const wheelWinUrl = m => (m && m.poster ? TMDB.img(m.poster, "w500") : null);
+function wheelPreloadWinner(m) { const u = wheelWinUrl(m); if (u) keepImage(u); }
+function wheelWinnerReady(m) {
+  const u = wheelWinUrl(m), im = u && imgKeep.get(u);
+  if (!im) return Promise.resolve();
+  return Promise.race([im.decode ? im.decode().catch(() => {}) : Promise.resolve(), wait(600)]);
 }
 
 function wheelFinish(k) {
@@ -490,7 +501,7 @@ function wheelFinish(k) {
   const st = $("#wheel-stage");
   if (st) burst(st, "var(--user-accent)", 18);
   haptic([20, 40, 30]);
-  wheelOpenTimer = setTimeout(wheelReveal, 900);
+  wheelOpenTimer = setTimeout(() => wheelWinnerReady(m).then(() => { if (wheelWon && wheelCurrent === m) wheelReveal(); }), 900);
 }
 
 /* ---------- Выход победителя ---------- */
