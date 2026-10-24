@@ -2215,6 +2215,22 @@ function hideLayers() { closeSheetUI(); closeFiltersUI(); closeWheelUI(); }
   if (!v || !v.version || v.version === "dev") { el.textContent = "dev"; return; }
   el.textContent = `v${v.version}${v.sha ? " · " + v.sha : ""}`;
   if (v.date) el.title = "Обновлено " + v.date;
+  // Диагностика: тап по версии показывает размеры окна (для поиска проблемы с нижним краем), ещё тап — возвращает версию
+  const base = el.textContent;
+  let dbg = false;
+  el.style.pointerEvents = "auto";
+  el.addEventListener("click", () => {
+    dbg = !dbg;
+    if (!dbg) { el.textContent = base; el.style.whiteSpace = ""; return; }
+    const p = document.createElement("div");
+    p.style.cssText = "position:fixed;left:0;bottom:0;height:env(safe-area-inset-bottom,0px);width:1px;visibility:hidden";
+    document.body.appendChild(p);
+    const sab = Math.round(p.getBoundingClientRect().height);
+    p.remove();
+    const vv = window.visualViewport;
+    el.style.whiteSpace = "normal";
+    el.textContent = `inner ${innerWidth}×${innerHeight} · screen ${screen.width}×${screen.height} · vv ${vv ? Math.round(vv.height) : "-"} · client ${document.documentElement.clientHeight} · safe-bottom ${sab} · standalone ${navigator.standalone} · dpr ${devicePixelRatio}`;
+  });
 })();
 
 let appStarted = false;
