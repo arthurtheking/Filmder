@@ -1,5 +1,5 @@
 :root {
-  --bg: #0a0a0d;
+  --bg: #000000;
   --surface: #131318;
   --surface-2: #1c1c23;
   --fg: #f1f1f4;
@@ -444,7 +444,6 @@ html.theme-fade, html.theme-fade * { transition: background-color .45s var(--eas
   padding: calc(26px + env(safe-area-inset-top, 0px)) 22px calc(22px + env(safe-area-inset-bottom, 0px)); color: #fff; text-align: center;
   background: var(--rv-base, #05050a);
   animation: rv-fade .5s ease backwards; perspective: 900px; }
-@supports (height: 100lvh) { .reveal { min-height: calc(100lvh + 4px); } }
 .reveal.out { opacity: 0; transition: opacity .25s ease; pointer-events: none; }
 
 .reveal-tag { position: relative; padding: 5px 14px; border-radius: 999px; background: rgba(255,255,255,.18); border: 1px solid color-mix(in srgb, var(--c1, #3CBBB1) 70%, #fff 10%); color: #fff; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; animation: rv-pop .5s var(--spring) .5s backwards; }
@@ -572,9 +571,8 @@ html.rv-open { background-color: var(--rv-base); }
 @keyframes wl-pop { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 
 .wheel-backdrop { z-index: 19; background: #07080c; align-items: stretch; justify-content: center; inset: -2px; }
-@supports (height: 100lvh) { .wheel-backdrop { min-height: calc(100lvh + 4px); } }
 .wheel-fs { --glow: #2fb3a8; position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; color: #fff;
-  padding-top: calc(8px + env(safe-area-inset-top, 0px)); padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  padding-top: calc(8px + env(safe-area-inset-top, 0px)); padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)); }
 .wheel-fs > * { position: relative; z-index: 1; }
 .wheel-fs > .wf-bgs { position: absolute; z-index: 0; }
 
