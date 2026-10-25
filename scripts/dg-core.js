@@ -27,6 +27,10 @@ function dgRng(seed) { // mulberry32
   };
 }
 
+// Цвет игрока по месту в комнате (одинаков на всех устройствах)
+const DG_PLAYER = ["#46e0a0", "#ff7a5c", "#5ab0ff", "#ffb84d", "#c58bff", "#ff6fb1"];
+const DG_GOLD = "#ffd166";
+const dgPlayerColor = slot => DG_PLAYER[((slot % DG_PLAYER.length) + DG_PLAYER.length) % DG_PLAYER.length];
 const DG_COLORS = ["#2fb3a8", "#e8683f", "#7c4dff", "#e8a317", "#d63384", "#2f6fe0", "#2bb673", "#d9413d", "#12a8c9", "#7fb71a", "#c05bd6", "#e07b28"];
 const dgEase = {
   lin: t => t,
@@ -55,7 +59,8 @@ function dgSetup(r) {
   const n = r.pool.length;
   let items = r.pool, game = null;
   if (r.match) {
-    const common = r.pool.filter(m => m.owners.length === 2);
+    const w = r.pool.find(m => m.id === r.winnerId), k = w ? w.owners.length : 2;
+    const common = r.pool.filter(m => m.owners.length === k);
     if (common.length < 2) return { game: DG.games.get("match"), items: common.length ? common : r.pool };
     items = common;
   }
@@ -79,7 +84,8 @@ function dgPreload(items, ms = 2200) {
 
 /* ---------- Запуск ---------- */
 // host — пустой контейнер .dg-arena. Возвращает { game, done, cancel }
-function dgPlay(r, host, you) {
+function dgPlay(r, host, you, players) {
+  players = players && players.length ? players : [{ slot: 0, name: "Вы" }, { slot: 1, name: "Соперник" }];
   const { game, items: base } = dgSetup(r);
   const win = r.pool.find(m => m.id === r.winnerId);
   const rng = dgRng((r.seed ^ dgHash(game.id)) >>> 0);
@@ -94,7 +100,7 @@ function dgPlay(r, host, you) {
 
   host.innerHTML = `<div class="dg-head"><span class="dg-gicon">${game.icon || ""}</span><div class="dg-gname"><b>${esc(game.name)}</b><small>${esc(game.tag || "")}</small></div></div>
     <div class="dg-stage" data-game="${game.id}"></div><div class="dg-cap"></div>
-    <div class="dg-legend"><i class="mine">Ваши</i><i class="theirs">Соперника</i><i class="both">Общие</i></div>`;
+    <div class="dg-legend">${players.filter(p => r.pool.some(m => m.owners.includes(p.slot))).map(p => `<i style="--c:${dgPlayerColor(p.slot)}">${esc(p.slot === you ? "Вы" : p.name)}</i>`).join("")}${r.pool.some(m => m.owners.length > 1) ? `<i style="--c:${DG_GOLD}">Общие</i>` : ""}</div>`;
   const stage = host.querySelector(".dg-stage"), cap = host.querySelector(".dg-cap");
 
   let dead = false, lastTick = 0, finish;
@@ -102,13 +108,15 @@ function dgPlay(r, host, you) {
   const W = stage.clientWidth || 340, H = stage.clientHeight || 420;
 
   const G = {
-    el: stage, W, H, items, n: items.length, win, wi: items.findIndex(m => m.id === win.id), all: r.pool, you, seed: r.seed, rng, shuffle,
+    el: stage, W, H, items, n: items.length, win, wi: items.findIndex(m => m.id === win.id), all: r.pool, you, players, seed: r.seed, rng, shuffle,
     get dead() { return dead; },
     int: n => Math.floor(rng() * n),
     range: (a, b) => a + rng() * (b - a),
     pick: a => a[Math.floor(rng() * a.length)],
     others: () => items.filter(m => m.id !== win.id),
-    side: m => (m.owners.length === 2 ? "both" : m.owners[0] === you ? "mine" : "theirs"),
+    side: m => (m.owners.length > 1 ? "both" : m.owners[0] === you ? "mine" : "theirs"),
+    ring: m => (m.owners.length > 1 ? DG_GOLD : dgPlayerColor(m.owners[0])),
+    ownerNames: m => m.owners.map(o => { const p = players.find(x => x.slot === o); return p ? (o === you ? "Вы" : p.name) : "—"; }),
     color: m => DG_COLORS[Math.max(0, items.indexOf(m)) % DG_COLORS.length],
     ci: i => DG_COLORS[i % DG_COLORS.length],
     src: (m, size = "w185") => (m.poster ? TMDB.img(m.poster, size) : ""),
@@ -159,6 +167,8 @@ function dgPlay(r, host, you) {
       d.style.width = w + "px";
       d._w = w; d._h = w * 1.5; d._m = m;
       d.style.setProperty("--c", G.color(m));
+      d.style.setProperty("--ring", G.ring(m));
+      d.style.borderRadius = Math.max(4, w * 0.09) + "px";
       const src = G.src(m, w > 110 ? "w342" : "w185");
       d.innerHTML = `${src ? `<img src="${src}" alt="" draggable="false" onerror="this.parentNode.classList.add('np')">` : ""}<span class="ph">${esc(m.title)}</span>`;
       if (!src) d.classList.add("np");

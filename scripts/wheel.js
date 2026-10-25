@@ -2,6 +2,7 @@
 
 /* ============ Колесо на вечер ============ */
 const ICON_DICE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r=".9" fill="currentColor"/><circle cx="15.5" cy="8.5" r=".9" fill="currentColor"/><circle cx="12" cy="12" r=".9" fill="currentColor"/><circle cx="8.5" cy="15.5" r=".9" fill="currentColor"/><circle cx="15.5" cy="15.5" r=".9" fill="currentColor"/></svg>`;
+const ICON_GAME = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 10v5M4.5 12.5h5M15.5 11.5h.01M18 14h.01"/></svg>`;
 const WHEEL_TIMES = [[0, "Любое время"], [90, "до 1,5 ч"], [120, "до 2 ч"], [150, "до 2,5 ч"]];
 
 let wheelNext = false;       // «следующая шторка открыта из колеса»
@@ -66,6 +67,11 @@ function wheelCtaHtml(items, i) {
       <small>Случайный фильм из ${items.length}</small>
       <span class="cta-go">${ICON_DICE}Выбрать за меня</span>
     </span>
+  </button>
+  <button class="fate-btn" id="btn-fate" style="--i:${i + 1}">
+    <span class="fate-ico">${ICON_GAME}</span>
+    <span class="fate-t"><b>Пусть решит игра</b><small>${typeof DG !== "undefined" ? DG.ids.length : 30} мини-игр: скачки, рулетка, дартс…</small></span>
+    <span class="fate-go" aria-hidden="true">›</span>
   </button>`;
 }
 

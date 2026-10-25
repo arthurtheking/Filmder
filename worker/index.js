@@ -1,3 +1,4 @@
+import { cleanReplay } from "./logic.js";
 export { Room } from "./room.js";
 
 // Filmder proxy + sync. Секреты: TMDB_TOKEN. KV: SYNC. Переменная: ALLOWED_ORIGIN.
@@ -15,7 +16,7 @@ export default {
     const allowed = any ? "*" : list.includes(origin) ? origin : list[0];
     const cors = {
       "Access-Control-Allow-Origin": allowed,
-      "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
       "Vary": "Origin",
     };
@@ -45,6 +46,24 @@ export default {
     if (rm) {
       if (req.headers.get("Upgrade") !== "websocket") return reply({ error: "ws" }, 426);
       return env.ROOM.get(env.ROOM.idFromName(rm[1])).fetch(req);
+    }
+
+    // --- Реплеи дуэлей: короткая ссылка вместо длинного списка фильмов ---
+    if (url.pathname === "/replay" && req.method === "POST") {
+      const text = await req.text();
+      if (text.length > 30_000) return reply({ error: "too big" }, 413);
+      let b; try { b = JSON.parse(text); } catch { return reply({ error: "json" }, 400); }
+      const clean = cleanReplay(b);
+      if (!clean) return reply({ error: "shape" }, 400);
+      const ab = "abcdefghjkmnpqrstuvwxyz23456789";
+      const id = [...crypto.getRandomValues(new Uint8Array(8))].map(x => ab[x % ab.length]).join("");
+      await env.SYNC.put("r:" + id, JSON.stringify(clean), { expirationTtl: 30 * 86400 });
+      return reply({ id });
+    }
+    const rp = url.pathname.match(/^\/replay\/([a-z0-9]{8})$/);
+    if (rp && req.method === "GET") {
+      const cur = await env.SYNC.get("r:" + rp[1]);
+      return cur ? reply(cur, 200, { "Cache-Control": "public, max-age=3600" }) : reply({ error: "none" }, 404);
     }
 
     // --- TMDB ---

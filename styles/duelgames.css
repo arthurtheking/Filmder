@@ -272,3 +272,7 @@
 .tg-rope { position: absolute; height: 5px; margin-top: -2px; border-radius: 3px; background: repeating-linear-gradient(90deg, #c9a36a 0 6px, #a07d46 6px 12px); }
 .tg-flag { position: absolute; width: 14px; height: 36px; background: #ff3d5a; clip-path: polygon(0 0, 100% 20%, 0 50%); }
 .tg-line { position: absolute; width: 0; height: 140px; border-left: 2px dashed rgba(255, 255, 255, .45); }
+.dg-legend i::before { background: var(--c); }
+.mt-owners { position: absolute; left: 0; right: 0; z-index: 6; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; padding: 0 12px; animation: dg-pop .4s var(--spring) .3s backwards; }
+.mt-owners span { padding: 3px 10px; border-radius: 999px; font-size: 11px; background: rgba(255, 209, 102, .2); border: 1px solid var(--dg-both); }
+.dg-legend i::before { background: var(--c); }

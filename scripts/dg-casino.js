@@ -33,7 +33,6 @@ function dgPoster(x, im, w, h, fallback, ring) {
   x.restore();
   if (ring) { dgRRect(x, -w / 2, -h / 2, w, h, Math.max(2, w * 0.1)); x.lineWidth = 2; x.strokeStyle = ring; x.stroke(); }
 }
-const DG_RING = { mine: "#46e0a0", theirs: "#ff7a5c", both: "#ffd166" };
 
 /* ---------- Однорукий бандит ---------- */
 dgReg({
@@ -125,7 +124,7 @@ dgReg({
       const rd = R * 0.7, pw = Math.min(R * 0.27, rd * seg * 0.78), ph = pw * 1.5;
       for (let i = 0; i < n; i++) {
         x.save(); x.translate(cx, cy); x.rotate(aw + ac(i) + Math.PI / 2); x.translate(0, -rd);
-        dgPoster(x, imgs[i], pw, ph, G.ci(i), DG_RING[G.side(G.items[i])]);
+        dgPoster(x, imgs[i], pw, ph, G.ci(i), G.ring(G.items[i]));
         x.restore();
       }
       if (hl > 0) { // затемняем всех, кроме победителя
@@ -201,7 +200,7 @@ dgReg({
       const rd = R * 0.66, pw = Math.min(R * 0.36, rd * seg * 0.8), ph = pw * 1.5;
       for (let i = 0; i < n; i++) {
         x.save(); x.translate(cx, cy); x.rotate(aw - Math.PI / 2 + (i + 0.5) * seg + Math.PI / 2); x.translate(0, -rd);
-        dgPoster(x, imgs[i], pw, ph, G.ci(i), DG_RING[G.side(G.items[i])]);
+        dgPoster(x, imgs[i], pw, ph, G.ci(i), G.ring(G.items[i]));
         x.restore();
       }
       if (hl > 0) {
@@ -246,7 +245,7 @@ dgReg({
     const T = ["rotateY(0deg)", "rotateY(180deg)", "rotateY(90deg)", "rotateY(-90deg)", "rotateX(90deg)", "rotateX(-90deg)"];
     const SHOW = [[0, 0], [0, 180], [0, -90], [0, 90], [-90, 0], [90, 0]]; // поворот куба, чтобы грань была спереди
     const scene = G.html(`<div class="dc-scene" style="width:${S}px;height:${S}px"><div class="dc-shadow"></div><div class="dc-throw"><div class="dc-cube" style="width:${S}px;height:${S}px">
-      ${list.map((m, i) => `<div class="dc-face" style="width:${S}px;height:${S}px;transform:${T[i]} translateZ(${half}px)" data-side="${G.side(m)}">
+      ${list.map((m, i) => `<div class="dc-face" style="width:${S}px;height:${S}px;transform:${T[i]} translateZ(${half}px)" style="--ring:${G.ring(m)}">
         ${m.poster ? `<img src="${G.src(m, "w342")}" alt="" draggable="false">` : `<span>${esc(m.title)}</span>`}<em>${i + 1}</em></div>`).join("")}
     </div></div></div>`);
     const cube = scene.querySelector(".dc-cube"), thr = scene.querySelector(".dc-throw"), sh = scene.querySelector(".dc-shadow");

@@ -60,7 +60,7 @@ dgReg({
     G.html(`<div class="lt-stand" style="left:${cx - Rd * 0.6}px;top:${cy + Rd - 4}px;width:${Rd * 1.2}px"></div>`);
     const balls = G.items.map((m, i) => {
       const el = document.createElement("div");
-      el.className = "lt-ball"; el.dataset.side = G.side(m);
+      el.className = "lt-ball"; el.style.setProperty("--ring", G.ring(m));
       el.style.cssText = `width:${rb * 2}px;height:${rb * 2}px;background:radial-gradient(circle at 35% 30%, #fff8, ${G.ci(i)} 55%);font-size:${rb * 0.95}px`;
       el.textContent = i + 1;
       drum.appendChild(el);
@@ -224,7 +224,7 @@ dgReg({
     const tr = R * 0.6, tw = Math.min(R * 0.34, 2 * tr * Math.sin(seg / 2) * 0.82);
     const thumbs = G.items.map((m, i) => {
       const t = document.createElement("div");
-      t.className = "dt-thumb"; t.dataset.side = G.side(m);
+      t.className = "dt-thumb"; t.style.setProperty("--ring", G.ring(m));
       const src = G.src(m);
       t.style.cssText = `width:${tw}px;height:${tw}px;left:${cx + Math.cos(ca(i)) * tr - tw / 2}px;top:${cy + Math.sin(ca(i)) * tr - tw / 2}px;${src ? `background-image:url(${src})` : `background:${G.ci(i)}`}`;
       wrap.appendChild(t);
@@ -466,41 +466,68 @@ dgReg({
   },
 });
 
-/* ---------- Совпадение (служебная сцена: фильм выбрали оба) ---------- */
+/* ---------- Совпадение (служебная сцена: фильм выбрали несколько игроков) ---------- */
 dgReg({
-  id: "match", name: "Совпадение!", special: true, min: 1, max: 20, tag: "Вы выбрали один и тот же фильм",
+  id: "match", name: "Совпадение!", special: true, min: 1, max: 20, tag: "Один и тот же фильм выбрали сразу несколько",
   icon: dgIcon('<path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 2.6 4.5 6.4 4.5c2.2 0 3.6 1.2 4.6 2.7h2c1-1.5 2.4-2.7 4.6-2.7 3.8 0 5.5 3.9 4 7.3C19.5 16.4 12 21 12 21z"/>'),
   async run(G) {
-    const mine = G.all.filter(m => m.owners.includes(G.you)), theirs = G.all.filter(m => m.owners.includes(1 - G.you));
-    const cw = dgClamp(Math.min((G.H - 80) / 5 / 1.5 - 4, 46), 22, 46), ch = cw * 1.5;
-    const colX = (side, c) => (side === 0 ? G.W * 0.14 : G.W * 0.86) + (c - 0.5) * (cw + 6) * (side === 0 ? 1 : -1);
-    const rowY = r => 60 + r * (ch + 8) + ch / 2;
-    G.html(`<div class="mt-label" style="left:${G.W * 0.14 - 10}px">Вы</div><div class="mt-label them" style="left:${G.W * 0.86 - 40}px">Соперник</div>`);
-    const mk = (list, side) => list.map((m, i) => {
-      const c = G.card(m, { w: cw, abs: true }); G.add(c);
-      G.place(c, colX(side, i % 2), rowY(Math.floor(i / 2)));
-      c.animate([{ opacity: 0, transform: c.style.transform + " scale(.4)" }, { opacity: 1, transform: c.style.transform }], { duration: 400, delay: i * 70 + side * 40, fill: "backwards", easing: "cubic-bezier(.34,1.56,.64,1)" });
-      return { c, m, i };
-    });
-    const A = mk(mine, 0), B = mk(theirs, 1);
-    G.say("Сравниваем выборы…");
-    await G.wait(900 + Math.max(mine.length, theirs.length) * 70);
-    const hit = x => x.m.id === G.win.id;
-    [...A, ...B].forEach(x => { if (!hit(x)) x.c.classList.add("dim"); });
-    G.tick();
-    await G.wait(800);
-    const a = A.find(hit) || A[0], b = B.find(hit) || B[0] || A[0], mx = G.W / 2, my = G.H / 2 - 10;
-    const big = Math.min(G.W * 0.4, 150);
-    a.c.style.zIndex = 5; b.c.style.zIndex = 4;
-    const ax = colX(0, a.i % 2), ay = rowY(Math.floor(a.i / 2)), bx = colX(1, b.i % 2), by = rowY(Math.floor(b.i / 2));
-    await Promise.all([
-      G.anim(1000, e => G.place(a.c, dgLerp(ax, mx - 6, e), dgLerp(ay, my, e), dgLerp(1, big / cw, e), dgLerp(0, -4, e)), dgEase.io),
-      G.anim(1000, e => G.place(b.c, dgLerp(bx, mx + 6, e), dgLerp(by, my, e), dgLerp(1, big / cw, e), dgLerp(0, 4, e)), dgEase.io),
-    ]);
+    const pl = G.players, big = Math.min(G.W * 0.4, 150), mx = G.W / 2, my = G.H / 2 - 10;
+    const hit = m => m.id === G.win.id;
+    if (pl.length <= 2) {
+      // два игрока: два «веера» — слева и справа, совпавший фильм летит к центру с обеих сторон
+      const lists = pl.map(p => G.all.filter(m => m.owners.includes(p.slot)));
+      const cw = dgClamp(Math.min((G.H - 80) / 5 / 1.5 - 4, 46), 22, 46), ch = cw * 1.5;
+      const colX = (side, c) => (side === 0 ? G.W * 0.14 : G.W * 0.86) + (c - 0.5) * (cw + 6) * (side === 0 ? 1 : -1);
+      const rowY = r => 60 + r * (ch + 8) + ch / 2;
+      G.html(`<div class="mt-label" style="left:${G.W * 0.14 - 10}px">${esc(pl[0] ? pl[0].name : "")}</div><div class="mt-label them" style="left:${G.W * 0.86 - 40}px">${esc(pl[1] ? pl[1].name : "")}</div>`);
+      const A = [], B = [];
+      lists.forEach((list, side) => list.forEach((m, i) => {
+        const c = G.card(m, { w: cw, abs: true }); G.add(c);
+        G.place(c, colX(side, i % 2), rowY(Math.floor(i / 2)));
+        c.animate([{ opacity: 0, transform: c.style.transform + " scale(.4)" }, { opacity: 1, transform: c.style.transform }], { duration: 400, delay: i * 70 + side * 40, fill: "backwards", easing: "cubic-bezier(.34,1.56,.64,1)" });
+        (side ? B : A).push({ c, m, i });
+      }));
+      G.say("Сравниваем выборы…");
+      await G.wait(900 + Math.max(...lists.map(l => l.length), 1) * 70);
+      [...A, ...B].forEach(x => { if (!hit(x.m)) x.c.classList.add("dim"); });
+      G.tick();
+      await G.wait(800);
+      const a = A.find(x => hit(x.m)) || A[0], b = B.find(x => hit(x.m)) || B[0] || A[0];
+      a.c.style.zIndex = 5; b.c.style.zIndex = 4;
+      const ax = colX(0, a.i % 2), ay = rowY(Math.floor(a.i / 2)), bx = colX(1, b.i % 2), by = rowY(Math.floor(b.i / 2));
+      await Promise.all([
+        G.anim(1000, e => G.place(a.c, dgLerp(ax, mx - 6, e), dgLerp(ay, my, e), dgLerp(1, big / cw, e), dgLerp(0, -4, e)), dgEase.io),
+        G.anim(1000, e => G.place(b.c, dgLerp(bx, mx + 6, e), dgLerp(by, my, e), dgLerp(1, big / cw, e), dgLerp(0, 4, e)), dgEase.io),
+      ]);
+      if (b !== a) b.c.style.opacity = 0;
+      G.shine(a.c);
+    } else {
+      // группа: все выбранные фильмы разложены сеткой; совпавший выезжает в центр
+      const n = G.all.length, cols = n <= 12 ? 4 : n <= 24 ? 6 : 8, rows = Math.ceil(n / cols);
+      const cw = Math.min((G.W - 16) / cols - 6, ((G.H - 16) / rows - 6) / 1.5, 64), ch = cw * 1.5;
+      const cellW = (G.W - 12) / cols, cellH = Math.min((G.H - 12) / rows, ch + 8), top0 = (G.H - rows * cellH) / 2;
+      let win;
+      const cards = G.all.map((m, i) => {
+        const col = i % cols, row = Math.floor(i / cols), inRow = row === rows - 1 ? n - row * cols : cols;
+        const x = 6 + ((cols - inRow) * cellW) / 2 + col * cellW + cellW / 2, y = top0 + row * cellH + cellH / 2;
+        const c = G.card(m, { w: cw, abs: true }); G.add(c); G.place(c, x, y);
+        c.animate([{ opacity: 0, transform: c.style.transform + " scale(.4)" }, { opacity: 1, transform: c.style.transform }], { duration: 380, delay: i * 25, fill: "backwards", easing: "cubic-bezier(.34,1.56,.64,1)" });
+        if (hit(m)) win = { c, x, y, cw };
+        return c;
+      });
+      G.say("Ищем общий фильм…");
+      await G.wait(900 + n * 25);
+      cards.forEach(c => { if (c !== win.c) c.classList.add("dim"); });
+      G.tick();
+      await G.wait(800);
+      win.c.style.zIndex = 5;
+      await G.anim(1000, e => G.place(win.c, dgLerp(win.x, mx, e), dgLerp(win.y, my, e), dgLerp(1, big / win.cw, e), 0), dgEase.io);
+      G.shine(win.c);
+      const names = G.ownerNames(G.win);
+      G.html(`<div class="mt-owners" style="top:${my + big * 0.75 + 12}px">${names.map(n2 => `<span>${esc(n2)}</span>`).join("")}</div>`);
+    }
     G.thud();
-    b.c.style.opacity = 0;
     G.html('<div class="mt-flash"></div>');
-    G.shine(a.c);
     G.say("СОВПАДЕНИЕ!", "gold");
     await G.wait(1500);
   },

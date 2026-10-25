@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { applyMessage, viewFor } from "./logic.js";
+import { applyMessage, viewFor, MAX_PLAYERS, cleanName } from "./logic.js";
 
 const TTL = 6 * 3600 * 1000;
 
@@ -21,7 +21,7 @@ export class Room extends DurableObject {
     const url = new URL(req.url);
     if (url.pathname === "/init") {
       if (await this.load()) return new Response("", { status: 409 });
-      await this.ctx.storage.put("s", { phase: "lobby", players: {}, order: [], round: 1, result: null });
+      await this.ctx.storage.put("s", { phase: "lobby", players: {}, order: [], round: 1, result: null, stake: "", target: 0, wins: {}, limit: 10 });
       await this.ctx.storage.setAlarm(Date.now() + TTL);
       return new Response("ok");
     }
@@ -34,10 +34,10 @@ export class Room extends DurableObject {
     const pid = url.searchParams.get("pid") || "";
     if (!/^[a-f0-9]{32}$/.test(pid)) return reject("pid");
     if (!s.players[pid]) {
-      if (s.order.length >= 2) return reject("full");
-      s.players[pid] = { picks: [], done: false };
+      if (s.phase !== "lobby") return reject("started"); // новых игроков принимаем только в лобби
+      if (s.order.length >= MAX_PLAYERS) return reject("full");
+      s.players[pid] = { picks: [], done: false, name: cleanName(url.searchParams.get("name") || "") };
       s.order.push(pid);
-      if (s.order.length === 2 && s.phase === "lobby") s.phase = "picking";
       await this.ctx.storage.put("s", s);
     }
     this.ctx.acceptWebSocket(server, [pid]);

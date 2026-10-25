@@ -155,15 +155,16 @@
 .dz-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7, 8, 12, .45), rgba(7, 8, 12, .2) 40%, #07080c 95%); }
 .dz-rays { position: absolute; left: 50%; top: 26%; width: 150vmax; height: 150vmax; z-index: 0; transform: translate(-50%, -50%); pointer-events: none; opacity: .5;
   background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--user-accent) 38%, transparent) 0 7deg, transparent 7deg 20deg); -webkit-mask: radial-gradient(circle, #000, transparent 45%); mask: radial-gradient(circle, #000, transparent 45%); animation: rv-rays 40s linear infinite; }
-.dz-reveal { position: relative; z-index: 1; align-items: center; justify-content: center; gap: 12px; padding: 8px 20px 18px; }
+.dz-reveal { position: relative; z-index: 1; align-items: center; justify-content: flex-start; gap: 12px; padding: 8px 20px 18px; }
+.dz-reveal > :first-child { margin-top: auto; } .dz-reveal > :last-child { margin-bottom: auto; }
 .dz-tag { padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; background: rgba(255, 255, 255, .16); border: 1px solid color-mix(in srgb, var(--user-accent) 70%, #fff 10%); animation: rv-pop .6s var(--spring) .1s backwards; }
-.dz-card { position: relative; flex: none; width: min(56vw, 240px, calc(36dvh * 2 / 3)); aspect-ratio: 2 / 3; border-radius: 18px; overflow: hidden; border: 2px solid rgba(255, 255, 255, .85); background: #1c1c23; display: grid; place-items: center; padding: 10px;
+.dz-card { position: relative; flex: none; width: min(52vw, 230px, calc(30dvh * 2 / 3)); aspect-ratio: 2 / 3; border-radius: 18px; overflow: hidden; border: 2px solid rgba(255, 255, 255, .85); background: #1c1c23; display: grid; place-items: center; padding: 10px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, .6); animation: rv-glow 2.6s ease-in-out 1.2s infinite; }
 .dz-card.land { animation: dz-land .9s var(--spring) backwards, rv-glow 2.6s ease-in-out 1.2s infinite; }
 @keyframes dz-land { from { opacity: 0; transform: scale(.3) rotate(-14deg) translateY(60px); } }
 .dz-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .dz-shine { position: absolute; inset: 0; background: linear-gradient(115deg, transparent 36%, rgba(255, 255, 255, .5) 50%, transparent 64%); transform: translateX(-130%); animation: rv-shine 1.3s ease-out 1s forwards; }
-.dz-title { margin: 0; max-width: 360px; font: 500 21px/1.2 var(--font-display); overflow-wrap: anywhere; text-wrap: balance; animation: rv-up .6s var(--ease) .45s backwards; }
+.dz-title { margin: 0; color: #fff; max-width: 360px; font: 500 21px/1.2 var(--font-display); overflow-wrap: anywhere; text-wrap: balance; animation: rv-up .6s var(--ease) .45s backwards; }
 .dz-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; animation: rv-up .6s var(--ease) .55s backwards; }
 .dz-chips span { padding: 4px 11px; border-radius: 999px; font-size: 12px; background: rgba(255, 255, 255, .12); font-variant-numeric: tabular-nums; }
 .dz-chips .by { font-weight: 600; } .dz-chips .by.me { background: color-mix(in srgb, var(--like) 30%, transparent); color: #b8ffe0; }
@@ -180,3 +181,112 @@
 .dz-links { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; animation: rv-up .6s var(--ease) .9s backwards; }
 .dz-links .btn { width: auto !important; min-height: 36px !important; font-size: 13px !important; }
 @media (max-height: 700px) { .dz-reveal { gap: 8px; } .dz-title { font-size: 18px; } .dz-pool i { width: 22px; } .vs-fan { height: 70px; } .vs-mark span { font-size: 42px; } }
+
+/* ============ 2–6 игроков, ставка, серия, шеринг ============ */
+.dh-name { width: 100%; max-width: 360px; height: 46px; padding: 0 18px; text-align: center; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: 500 15px var(--font-body); transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+.dh-name:focus { outline: none; border-color: var(--user-accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--user-accent) 22%, transparent); }
+.btn.glass-line { background: transparent; border: 1px dashed color-mix(in srgb, currentColor 35%, transparent); }
+.av { flex: none; width: 34px; height: 34px; border-radius: 50%; display: inline-grid; place-items: center; font: 700 14px var(--font-display); font-style: normal; color: #fff; background: color-mix(in srgb, var(--c) 78%, #000); box-shadow: 0 0 0 2px var(--c); }
+
+/* Лобби */
+.dl-join { display: flex; align-items: center; justify-content: center; gap: 16px; width: 100%; }
+.dl-qr { flex: none; width: 128px; height: 128px; padding: 0; border-radius: 16px; overflow: hidden; background: #fff; box-shadow: 0 10px 28px var(--card-shadow); animation: dl-flip .7s var(--spring) .1s backwards; }
+.dl-qr svg { display: block; width: 100%; height: 100%; }
+.dl-codewrap { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.dl-codewrap small { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.dl-join .dl-code { gap: 5px; padding: 0; flex-wrap: nowrap; }
+.dl-join .dl-code i { width: 38px; height: 50px; border-radius: 12px; font-size: 22px; }
+.dl-players { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 360px; }
+.pl { display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 6px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); text-align: left; }
+.pl.new { animation: pl-in .5s var(--spring) backwards; }
+@keyframes pl-in { from { opacity: 0; transform: translateX(-24px) scale(.92); } }
+.pl b { flex: 1; min-width: 0; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl small { font-weight: 400; color: var(--muted); }
+.pl .crown { width: 20px; height: 20px; color: var(--gold); flex: none; filter: drop-shadow(0 0 6px rgba(255, 209, 102, .6)); }
+.pl.off { opacity: .5; }
+.pl.waiting { background: transparent; border-style: dashed; color: var(--muted); }
+.pl.waiting .av { background: transparent; box-shadow: 0 0 0 2px var(--line); color: var(--muted); }
+.dl-cfg { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 360px; }
+.cfg-t { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-align: left; padding-left: 6px; }
+.cfg-line { padding: 8px 14px; border-radius: 14px; font-size: 13px; background: color-mix(in srgb, var(--gold) 16%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 7px 13px; border-radius: 999px; font-size: 12.5px; font-weight: 500; background: var(--surface); border: 1px solid var(--line); color: var(--fg); transition: all var(--t-fast) var(--ease); }
+.chip:active { transform: scale(.94); }
+.chip.on { background: var(--user-accent); border-color: var(--user-accent); color: #fff; }
+.btn[disabled] { opacity: .45; pointer-events: none; }
+
+/* Выбор фильмов: много игроков */
+.dp-vs { flex-wrap: wrap; row-gap: 10px; }
+.dp-vs.many { gap: 10px 8px; }
+.dp-vs.many .dp-p { min-width: 0; width: calc(33.3% - 8px); }
+.dp-vs.many .dp-ring { width: 62px; height: 62px; } .dp-vs.many .dp-ring b { font-size: 18px; }
+.dp-p .dp-ring .fg { stroke: var(--c); }
+.dp-p > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-grid { grid-template-columns: repeat(var(--cols, 5), 1fr); }
+#dp-rules { padding: 6px 14px; border-radius: 999px; background: color-mix(in srgb, var(--gold) 16%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); color: var(--fg); }
+
+/* Полоска: остальные игроки */
+.db-row.others { gap: 6px; flex-wrap: wrap; }
+.pc { position: relative; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 2px; border-radius: 999px; background: color-mix(in srgb, var(--fg) 7%, transparent); }
+.pc i { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font: 700 10px var(--font-display); font-style: normal; color: #fff;
+  background: conic-gradient(var(--c) calc(var(--p, 0) * 1%), color-mix(in srgb, var(--c) 28%, #333) 0); box-shadow: inset 0 0 0 3px var(--bg-solid, #111); }
+.pc u { text-decoration: none; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pc.ready u { color: var(--like); } .pc.off { opacity: .45; }
+
+/* Вступление для группы */
+.vs.many { gap: 6px; }
+.vs-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px 10px; width: 100%; }
+.vs-grid .vs-side { width: calc(33.3% - 10px); animation: vs-pop .6s var(--spring) backwards; animation-delay: var(--d); }
+@keyframes vs-pop { from { opacity: 0; transform: translateY(24px) scale(.7); } }
+.vs-grid .vs-ava { width: 48px; height: 48px; } .vs-grid .vs-ava svg { width: 24px; height: 24px; }
+.vs-grid .vs-side b { font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-fan.mini { width: 64px; height: 50px; margin-bottom: 2px; } .vs-fan.mini i { width: 26px; margin-left: -13px; border-width: 1.5px; }
+.vs-side .vs-ava { background: color-mix(in srgb, var(--c) 30%, #0a0c10); border: 2px solid var(--c); box-shadow: 0 0 30px color-mix(in srgb, var(--c) 55%, transparent); }
+.vs-fan i { border-color: var(--c); }
+.vs-rules { align-self: center; margin: 0 16px 4px; padding: 6px 14px; border-radius: 999px; font-size: 12px; background: rgba(255, 209, 102, .16); border: 1px solid rgba(255, 209, 102, .5); animation: rv-up .6s var(--ease) 1s backwards; }
+.vs-solo { display: flex; flex-direction: column; align-items: center; gap: 8px; animation: vs-pop .7s var(--spring) backwards; }
+.vs-solo b { font: 500 22px var(--font-display); } .vs-solo small { opacity: .6; }
+.vs-ava.big { width: 88px; height: 88px; background: color-mix(in srgb, var(--user-accent) 30%, #0a0c10); border: 2px solid var(--user-accent); box-shadow: 0 0 40px color-mix(in srgb, var(--user-accent) 55%, transparent); }
+.vs-ava.big svg { width: 44px; height: 44px; }
+
+/* Победитель: счёт, ставка, серия */
+.dz-chips .by { background: color-mix(in srgb, var(--c) 30%, transparent); color: #fff; font-weight: 600; }
+.dz-score { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; animation: rv-up .6s var(--ease) .6s backwards; }
+.dz-score span { display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px 3px 3px; border-radius: 999px; font-size: 12px; background: rgba(255, 255, 255, .1); border: 1px solid transparent; }
+.dz-score span.win { background: color-mix(in srgb, var(--c) 28%, transparent); border-color: var(--c); }
+.dz-score .av { width: 24px; height: 24px; font-size: 11px; box-shadow: none; }
+.dz-score u { text-decoration: none; font: 700 14px var(--font-display); font-variant-numeric: tabular-nums; }
+.dz-score span.win u { animation: dg-pop .6s var(--spring) 1.1s backwards; color: var(--gold); }
+.dz-stake, .dz-series { display: flex; align-items: center; gap: 12px; max-width: 360px; width: 100%; padding: 10px 16px 10px 12px; border-radius: 18px; text-align: left; animation: rv-up .6s var(--ease) .7s backwards;
+  background: linear-gradient(120deg, rgba(255, 209, 102, .22), rgba(255, 209, 102, .08)); border: 1px solid rgba(255, 209, 102, .55); }
+.dz-stake i, .dz-series i { flex: none; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; color: #1a1300; background: var(--gold); }
+.dz-stake i svg, .dz-series i svg { width: 22px; height: 22px; }
+.dz-stake small, .dz-series small { display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+.dz-stake b, .dz-series b { display: block; font: 500 15px/1.25 var(--font-display); }
+.dz-stake span { display: block; font-size: 12px; opacity: .8; margin-top: 2px; }
+.dz-stake.calm { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .2); } .dz-stake.calm i { background: rgba(255, 255, 255, .2); color: #fff; }
+.dz-series { animation: rv-pop .7s var(--spring) .5s backwards, dz-pulse 2.4s ease-in-out 1.4s infinite; }
+@keyframes dz-pulse { 50% { box-shadow: 0 0 28px rgba(255, 209, 102, .55); } }
+.dz-pool i { outline-color: var(--c); }
+
+/* Выбор игры («Судьба») */
+.fp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; max-width: 380px; }
+.fp-g { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px; border-radius: 18px; text-align: left; background: var(--surface); border: 1px solid var(--line); transition: transform var(--t-base) var(--spring), border-color var(--t-fast); animation: fx-in .5s var(--ease) backwards; }
+.fp-g:active { transform: scale(.95); } .fp-g:hover { border-color: var(--user-accent); }
+.fp-g i { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; color: var(--user-accent); background: color-mix(in srgb, var(--user-accent) 14%, transparent); }
+.fp-g i svg { width: 20px; height: 20px; }
+.fp-g b { font: 500 13px/1.2 var(--font-display); } .fp-g small { font-size: 11px; color: var(--muted); line-height: 1.3; }
+
+/* Кнопка «Пусть решит игра» в «Моём вечере» */
+.fate-btn { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; margin: 0 0 8px; padding: 12px 16px 12px 12px; border-radius: 20px; text-align: left; color: var(--fg); overflow: hidden;
+  background: var(--surface); border: 1px solid color-mix(in srgb, var(--user-accent) 45%, var(--line)); transition: transform var(--t-base) var(--spring); }
+.fate-btn:active { transform: scale(.97); }
+.list-wrap.enter .fate-btn { animation: fx-in var(--t-base) var(--ease) backwards; animation-delay: calc(var(--i, 0) * 45ms); }
+.fate-ico { flex: none; width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; color: #fff; background: linear-gradient(145deg, var(--user-accent), color-mix(in srgb, var(--user-accent) 55%, #000)); }
+.fate-ico svg { width: 22px; height: 22px; }
+.fate-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fate-t b { font: 500 14px var(--font-display); } .fate-t small { font-size: 12px; color: var(--muted); }
+.fate-go { font-size: 24px; color: var(--muted); }
+.duel-body:not(.dz) > * { flex-shrink: 0; }
+.duel-body .btn svg { width: 18px; height: 18px; flex: none; }
+.dz-links .btn { gap: 6px; white-space: nowrap; }
