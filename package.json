@@ -1,0 +1,17 @@
+{
+  "name": "filmder",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:worker": "cd worker && wrangler dev",
+    "dev:front": "npx serve . -p 3000",
+    "dev": "concurrently \"npm run dev:worker\" \"npm run dev:front\"",
+    "deploy:worker": "cd worker && wrangler deploy",
+    "build": "echo 'Static app — no build step needed'",
+    "lint": "echo 'Add your linter here'"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "serve": "^14.2.0"
+  }
+}

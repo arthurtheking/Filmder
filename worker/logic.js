@@ -21,7 +21,7 @@ export function cleanMovie(m) {
   return {
     id: m.id, title: str(m.title, 120), orig: str(m.orig, 120), year: str(m.year, 4),
     rating: Math.max(0, Math.min(10, +m.rating || 0)),
-    poster: /^\/[\w.-]+\.(jpg|png|webp)$/.test(m.poster || "") ? m.poster : null,
+    poster: /^\/[\w.@-]+\.(jpg|png|webp)$/.test(m.poster || "") ? m.poster : null,
     runtime: Math.max(0, Math.min(1000, +m.runtime || 0)),
     genres: Array.isArray(m.genres) ? m.genres.slice(0, 5).map(g => str(g, 30)) : [],
   };

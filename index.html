@@ -41,6 +41,10 @@
         <span>Фильтры</span>
         <i class="filter-count" id="filter-count" hidden>0</i>
       </button>
+      <button class="filter-btn" id="btn-pro" aria-label="Filmder Pro">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+        <span class="pro-badge" id="pro-badge" hidden>Pro</span>
+      </button>
     </header>
 
     <section class="view" id="view-swipe">
@@ -119,6 +123,19 @@
         <li>Сохраните файл и обновите эту страницу.</li>
       </ol>
       <p>Ключ берётся на themoviedb.org в разделе Settings → API.</p>
+    </div>
+  </div>
+
+  <!-- Pro Settings -->
+  <div class="pro-overlay" id="pro-overlay" hidden>
+    <div class="sheet pro-sheet" id="pro-sheet-element" role="dialog" aria-modal="true" aria-label="Настройки Pro">
+      <div class="grabber"></div>
+      <div class="sheet-head">
+        <h2>Filmder Pro</h2>
+      </div>
+      <div class="pro-content" id="pro-content">
+        <!-- Содержимое заполняется JS -->
+      </div>
     </div>
   </div>
 

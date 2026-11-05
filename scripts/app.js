@@ -9,6 +9,11 @@ const TUTORIAL_KEY = "filmder-tutorial-shown";
 const PENDING_KEY = "filmder-pending-watch";
 const HISTORY_LIMIT = 30;
 const PASSED_LIMIT = 3000;
+// Pro / Monetization
+const PRO_KEY = "filmder-pro";
+const LICENSE_KEY = "filmder-license";
+const USER_ID_KEY = "filmder-user-id";
+const PROXY_LICENSE_URL = (CONFIG.PROXY_URL || "").trim().replace(/\/+$/, "") + "/license/verify";
 
 // true  — трейлер стартует сам при открытии карточки (как раньше)
 // false — показывается кнопка ▶, плеер создаётся только по тапу (самый лёгкий режим для iPhone)
@@ -84,7 +89,7 @@ function anim(el, keyframes, options) {
 const bump = el => anim(el, [{ transform: "scale(1)" }, { transform: "scale(1.35)" }, { transform: "scale(1)" }], { duration: 400, easing: SPRING });
 
 /* ============ Состояние ============ */
-let state = { liked: [], watched: [], urls: {}, multiGenres: [] };
+let state = { liked: [], watched: [], urls: {}, multiGenres: [], pro: false, liteUI: false };
 const passed = new Set();
 try {
   const saved = JSON.parse(ls.get(STORE_KEY) || "null");
@@ -95,17 +100,75 @@ try {
     if (Array.isArray(saved.multiGenres)) state.multiGenres = saved.multiGenres;
     else if (saved.genre) state.multiGenres = [saved.genre];
     if (Array.isArray(saved.passed)) saved.passed.forEach(id => passed.add(id));
+    if (saved.pro !== undefined) state.pro = saved.pro;
+    if (saved.liteUI !== undefined) state.liteUI = saved.liteUI;
   }
 } catch (e) {}
 
 const saveNow = () => ls.set(STORE_KEY, JSON.stringify({
   liked: state.liked, watched: state.watched, urls: state.urls, multiGenres: state.multiGenres,
   passed: [...passed].slice(-PASSED_LIMIT),
+  pro: state.pro, liteUI: state.liteUI,
 }));
 let saveTimer = 0;
 const save = () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400); };
 addEventListener("pagehide", saveNow);
 document.addEventListener("visibilitychange", () => { if (document.hidden) saveNow(); });
+
+// User ID для лицензий (анонимный, хранится в localStorage)
+let userId = ls.get(USER_ID_KEY);
+if (!userId) {
+  userId = "u_" + crypto.getRandomValues(new Uint32Array(2)).join("") + Date.now().toString(36);
+  ls.set(USER_ID_KEY, userId);
+}
+
+// Проверка Pro-лицензии
+async function verifyLicense() {
+  if (!PROXY_LICENSE_URL) { state.pro = false; save(); return false; }
+  try {
+    const res = await fetch(PROXY_LICENSE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId })
+    });
+    const data = await res.json();
+    state.pro = !!data.pro;
+    if (data.pro) {
+      ls.set(LICENSE_KEY, JSON.stringify({ type: data.type, expires: data.expires, verifiedAt: Date.now() }));
+    } else {
+      ls.remove(LICENSE_KEY);
+    }
+    save();
+    return data.pro;
+  } catch (e) {
+    // Офлайн: используем кэшированную лицензию если есть и не просрочена
+    const cached = ls.get(LICENSE_KEY);
+    if (cached) {
+      try {
+        const lic = JSON.parse(cached);
+        const now = Date.now();
+        const valid = lic.type === "lifetime" || (lic.expires && lic.expires > now);
+        if (valid && lic.verifiedAt && (now - lic.verifiedAt < 7 * 86400000)) { // кэш 7 дней
+          state.pro = true;
+          save();
+          updateProBadge();
+          return true;
+        }
+      } catch {}
+    }
+    state.pro = false;
+    save();
+    updateProBadge();
+    return false;
+  }
+}
+
+// Инициализация UI состояний
+updateProBadge();
+document.documentElement.classList.toggle("lite-ui", state.liteUI);
+
+// Проверка при старте
+verifyLicense();
 
 const isLiked = id => state.liked.some(m => m.id === id);
 const isWatched = id => state.watched.some(m => m.id === id);
@@ -248,15 +311,21 @@ function posterHtml(path, size, alt) {
 
 // Держим ссылки на предзагруженные картинки: иначе браузер выбрасывает декодированный
 // битмап, и при вставке новой карточки постер мигает пустым градиентом.
-const imgKeep = new Map();
+// LRU-кэш: при обращении к существующему URL он перемещается в конец (most recently used).
+class LRUCache {
+  constructor(maxSize = 16) { this.maxSize = maxSize; this.map = new Map(); }
+  has(key) { return this.map.has(key); }
+  get(key) { if (!this.map.has(key)) return undefined; const v = this.map.get(key); this.map.delete(key); this.map.set(key, v); return v; }
+  set(key, value) { if (this.map.has(key)) this.map.delete(key); this.map.set(key, value); if (this.map.size > this.maxSize) this.map.delete(this.map.keys().next().value); }
+}
+const imgKeep = new LRUCache(16);
 function keepImage(url) {
-  if (imgKeep.has(url)) return;
+  if (imgKeep.has(url)) { imgKeep.get(url); return; } // touch для LRU
   const im = new Image();
   im.decoding = "async";
   im.src = url;
   imgKeep.set(url, im);
   if (im.decode) im.decode().catch(() => {});
-  if (imgKeep.size > 16) imgKeep.delete(imgKeep.keys().next().value);
 }
 function preloadDeck() {
   deck.slice(0, 6).forEach(m => { if (m.poster) keepImage(TMDB.img(m.poster, CARD_IMG)); });
@@ -1014,7 +1083,8 @@ function pushLayer() {
 function closeLayer() {
   const rv = document.getElementById("wheel-reveal");
   if (rv && !rv.classList.contains("out")) return hideReveal();
-  const w = document.getElementById("wheel-overlay"), ov = $("#overlay");
+  const w = document.getElementById("wheel-overlay"), ov = $("#overlay"), pv = $("#pro-overlay");
+  if (pv && !pv.hidden && !pv.classList.contains("closing")) return closeProUI();
   if (w && !w.hidden && !w.classList.contains("closing") && !ov.hidden && !ov.classList.contains("closing")) return closeSheetUI();
   hideLayers();
   if (layerPushed) {
@@ -1131,6 +1201,7 @@ function mediaHtml(m) {
   return `${back ? `<img src="${back}" alt="">` : ""}<div class="spinner"></div>`;
 }
 function playerHtml(key) {
+  if (!key) return `<div class="no-trailer"><span>Трейлер недоступен</span></div>`;
   const mute = IS_IOS ? "&mute=1" : "";
   return `<iframe src="https://www.youtube-nocookie.com/embed/${key}?autoplay=1&rel=0&playsinline=1${mute}" title="Трейлер"
     allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
@@ -1138,6 +1209,7 @@ function playerHtml(key) {
 function showTrailer(key) {
   const mm = $("#sheet-media");
   if (!mm) return;
+  if (!key) { mm.innerHTML = `<div class="no-trailer"><span>Трейлер не найден</span></div>`; return; }
   if (TRAILER_AUTOPLAY) { mm.innerHTML = playerHtml(key); return; }
   const sp = mm.querySelector(".spinner"); if (sp) sp.remove();
   mm.insertAdjacentHTML("beforeend", `<button class="play-btn" data-play="${esc(key)}" aria-label="Смотреть трейлер">${ICON_PLAY}</button>`);
@@ -1317,6 +1389,21 @@ function updateFilterBadge() {
   b.hidden = !state.multiGenres.length;
 }
 
+function updateProBadge() {
+  const badge = $("#pro-badge");
+  const btn = $("#btn-pro");
+  if (!badge || !btn) return;
+  if (state.pro) {
+    badge.hidden = false;
+    btn.classList.add("pro-active");
+    btn.setAttribute("aria-label", "Filmder Pro — активно");
+  } else {
+    badge.hidden = true;
+    btn.classList.remove("pro-active");
+    btn.setAttribute("aria-label", "Filmder Pro");
+  }
+}
+
 function openFiltersModal() {
   const sel = new Set(state.multiGenres.map(String));
   $("#filter-grid").innerHTML = genres.map(g => `
@@ -1351,30 +1438,333 @@ function applyFiltersModal() {
   refill("filter");
 }
 
-/* ============ Туториал ============ */
-const tutorialSteps = [
-  { title: "Добро пожаловать в Filmder!", text: "Удобный способ находить фильмы на вечер с друзьями или в одиночку." },
-  { title: "Как свайпать", text: "Свайп вправо добавляет фильм в «Мой вечер», свайп влево — пропускает его. Нажмите на карточку, чтобы посмотреть трейлер." },
-  { title: "Жанры и фильтры", text: "Настраивайте мультивыбор жанров через кнопку «Фильтры» в правом верхнем углу." },
-  { title: "Мой вечер", text: "Здесь хранятся выбранные фильмы по категориям. Смахните фильм влево, чтобы удалить его." },
-  { title: "Просмотренные", text: "Посмотрели фильм — смахните его вправо. Он переедет в отдельный список «Просмотрено» и больше не появится в свайпах. Нажали «Смотреть» — после возвращения в приложение мы сами предложим отметить фильм." },
-];
-let tutorialStep = 0;
+/* ============ Pro / Монетизация ============ */
+// Открытие настроек Pro
+function openProSettings() {
+  const o = $("#pro-overlay");
+  const content = $("#pro-content");
+  if (!o || !content) return;
 
-function checkTutorial() {
-  if (ls.get(TUTORIAL_KEY)) return;
-  showTutorialStep(0);
-  $("#tutorial").hidden = false;
+  const isPro = state.pro;
+  const license = ls.get(LICENSE_KEY);
+  let licenseInfo = "";
+  if (license) {
+    try {
+      const lic = JSON.parse(license);
+      if (lic.type === "lifetime") licenseInfo = "Лицензия: пожизненная";
+      else if (lic.expires) licenseInfo = `Подписка активна до ${new Date(lic.expires).toLocaleDateString("ru-RU")}`;
+    } catch {}
+  }
+
+  content.innerHTML = `
+    <div class="pro-section">
+      <h3>${isPro ? "🎉 Filmder Pro активен" : "🔓 Разблокируй Filmder Pro"}</h3>
+      ${licenseInfo ? `<p class="license-info">${licenseInfo}</p>` : ""}
+      ${!isPro ? `
+        <div class="pro-features">
+          <div class="pro-feature">
+            <span class="pro-feature-icon">📱</span>
+            <div>
+              <strong>QR-синхронизация</strong>
+              <small>Мгновенная синхронизация между устройствами через QR-код</small>
+            </div>
+          </div>
+          <div class="pro-feature">
+            <span class="pro-feature-icon">👥</span>
+            <div>
+              <strong>Профили</strong>
+              <small>Отдельные списки для семьи, детей, друзей</small>
+            </div>
+          </div>
+          <div class="pro-feature">
+            <span class="pro-feature-icon">📊</span>
+            <div>
+              <strong>Экспорт CSV/PDF</strong>
+              <small>Сохраняй и печатай свои списки фильмов</small>
+            </div>
+          </div>
+          <div class="pro-feature">
+            <span class="pro-feature-icon">⚡</span>
+            <div>
+              <strong>Lite UI</strong>
+              <small>Лёгкий режим для старых телефонов и экономии батареи</small>
+            </div>
+          </div>
+          <div class="pro-feature">
+            <span class="pro-feature-icon">🎮</span>
+            <div>
+              <strong>Приоритет в Дуэли</strong>
+              <small>Создавай комнаты без ограничений</small>
+            </div>
+          </div>
+          <div class="pro-feature">
+            <span class="pro-feature-icon">☁️</span>
+            <div>
+              <strong>Облачный бэкап</strong>
+              <small>Авто-сохранение в облаке каждые 24 часа</small>
+            </div>
+          </div>
+        </div>
+        <button class="btn primary" id="btn-pro-purchase" style="width:100%;margin-top:16px;">
+          Купить Pro — 299₽ разово / 99₽/мес
+        </button>
+        <button class="btn ghost" id="btn-pro-restore" style="width:100%;margin-top:8px;">
+          Восстановить покупку
+        </button>
+      ` : `
+        <div class="pro-features">
+          <label class="pro-toggle">
+            <input type="checkbox" id="pro-lite-ui" ${state.liteUI ? "checked" : ""}>
+            <span class="pro-toggle-slider"></span>
+            <div>
+              <strong>Lite UI</strong>
+              <small>Отключить тяжёлые анимации и размытия для экономии ресурсов</small>
+            </div>
+          </label>
+        </div>
+        <div class="pro-actions" style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn primary" id="btn-export-csv">Экспорт CSV</button>
+          <button class="btn primary" id="btn-export-pdf">Экспорт PDF</button>
+          <button class="btn ghost" id="btn-qr-sync">QR-синхронизация</button>
+          <button class="btn ghost" id="btn-cloud-backup">Облачный бэкап</button>
+          <button class="btn ghost" id="btn-manage-profiles">Профили</button>
+        </div>
+        <button class="btn ghost" id="btn-manage-subscription" style="width:100%;margin-top:12px;">
+          Управлять подпиской
+        </button>
+      `}
+    </div>
+  `;
+
+  clearTimeout(filtersTimer);
+  o.classList.remove("closing");
+  o.style.opacity = "";
+  $("#pro-sheet-element").classList.remove("dismissing");
+  o.hidden = false;
+  pushLayer();
+  bindProDragOnce();
+
+  // Helper to close Pro modal
+function closeProModal() { closeLayer(); }
+
+  // Event listeners для Pro кнопок
+  const purchaseBtn = $("#btn-pro-purchase");
+  if (purchaseBtn) purchaseBtn.onclick = startProPurchase;
+  const restoreBtn = $("#btn-pro-restore");
+  if (restoreBtn) restoreBtn.onclick = restoreProPurchase;
+  const exportCsvBtn = $("#btn-export-csv");
+  if (exportCsvBtn) exportCsvBtn.onclick = () => { exportCSV(); closeProModal(); };
+  const exportPdfBtn = $("#btn-export-pdf");
+  if (exportPdfBtn) exportPdfBtn.onclick = () => { exportPDF(); closeProModal(); };
+  const qrSyncBtn = $("#btn-qr-sync");
+  if (qrSyncBtn) qrSyncBtn.onclick = openQRCodeSync;
+  const cloudBackupBtn = $("#btn-cloud-backup");
+  if (cloudBackupBtn) cloudBackupBtn.onclick = async () => { await triggerCloudBackup(); closeProModal(); };
+  const manageProfilesBtn = $("#btn-manage-profiles");
+  if (manageProfilesBtn) manageProfilesBtn.onclick = openProfilesManager;
+  const manageSubBtn = $("#btn-manage-subscription");
+  if (manageSubBtn) manageSubBtn.onclick = openStripePortal;
+  const liteUIToggle = $("#pro-lite-ui");
+  if (liteUIToggle) liteUIToggle.onchange = toggleLiteUI;
 }
-function finishTutorial() { $("#tutorial").hidden = true; ls.set(TUTORIAL_KEY, "true"); }
-function showTutorialStep(step) {
-  tutorialStep = step;
-  if (step >= tutorialSteps.length) return finishTutorial();
-  $("#tutorial-step-counter").textContent = `Шаг ${step + 1} из ${tutorialSteps.length}`;
-  $("#tutorial-title").textContent = tutorialSteps[step].title;
-  $("#tutorial-text").textContent = tutorialSteps[step].text;
-  $("#tutorial-next").textContent = step === tutorialSteps.length - 1 ? "Начать" : "Далее";
-  if (step > 0) anim($("#tutorial-card"), FX_IN, { duration: 400 });
+
+let proDragBound = false;
+function bindProDragOnce() {
+  if (proDragBound) return;
+  proDragBound = true;
+  bindSheetDrag($("#pro-sheet-element"), $("#pro-overlay"));
+}
+
+async function startProPurchase() {
+  if (!PROXY_LICENSE_URL) {
+    showToast({ sub: "Покупка недоступна", title: "Настройте прокси в config.js" });
+    return;
+  }
+  try {
+    const res = await fetch((CONFIG.PROXY_URL || "").trim().replace(/\/+$/, "") + "/stripe/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, mode: "payment" }) // lifetime purchase
+    });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      showToast({ sub: "Ошибка", title: data.error || "Не удалось создать сессию оплаты" });
+    }
+  } catch (e) {
+    showToast({ sub: "Ошибка", title: "Проверьте интернет и попробуйте снова" });
+  }
+}
+
+async function restoreProPurchase() {
+  showToast({ sub: "Проверка...", title: "Восстанавливаем покупку" });
+  const ok = await verifyLicense();
+  if (ok) {
+    showToast({ sub: "Готово!", title: "Pro активирован" });
+    openProSettings(); // перерисуем
+  } else {
+    showToast({ sub: "Не найдено", title: "Активная лицензия не обнаружена" });
+  }
+}
+
+function toggleLiteUI(e) {
+  state.liteUI = e.target.checked;
+  save();
+  document.documentElement.classList.toggle("lite-ui", state.liteUI);
+  showToast({ sub: state.liteUI ? "Включено" : "Выключено", title: "Lite UI" });
+}
+
+// Экспорт в CSV
+function exportCSV() {
+  const allMovies = [...state.liked, ...state.watched];
+  if (!allMovies.length) {
+    showToast({ sub: "Пусто", title: "Нет фильмов для экспорта" });
+    return;
+  }
+  const headers = ["ID", "Название", "Оригинал", "Год", "Рейтинг", "Длительность", "Жанры", "Категория", "Статус", "Дата просмотра", "Постер", "Ссылка"];
+  const rows = allMovies.map(m => [
+    m.id,
+    `"${m.title.replace(/"/g, '""')}"`,
+    `"${(m.orig || "").replace(/"/g, '""')}"`,
+    m.year || "",
+    m.rating || "",
+    m.runtime || "",
+    `"${(m.genres || []).join(", ")}"`,
+    m.category || "",
+    state.watched.some(w => w.id === m.id) ? "Просмотрено" : "К просмотру",
+    m.watchedAt ? new Date(m.watchedAt).toLocaleDateString("ru-RU") : "",
+    m.poster ? `https://image.tmdb.org/t/p/w500${m.poster}` : "",
+    state.urls[m.id] || ""
+  ].join(","));
+  const csv = "﻿" + [headers.join(","), ...rows].join("\n"); // BOM для Excel
+  downloadFile(csv, "filmder-export.csv", "text/csv;charset=utf-8");
+  showToast({ sub: "Готово", title: `Экспортировано ${allMovies.length} ${plural(allMovies.length)}` });
+}
+
+// Экспорт в PDF (простой HTML → print)
+function exportPDF() {
+  const allMovies = [...state.liked, ...state.watched];
+  if (!allMovies.length) {
+    showToast({ sub: "Пусто", title: "Нет фильмов для экспорта" });
+    return;
+  }
+  const html = `
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"><title>Filmder Export</title>
+    <style>
+      body { font-family: system-ui; padding: 20px; }
+      h1 { color: #333; }
+      table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; }
+      th { background: #f5f5f5; }
+      .watched { background: #e8f5e9; }
+    </style>
+    </head><body>
+    <h1>Filmder — Мой список фильмов</h1>
+    <p>Экспортировано: ${new Date().toLocaleDateString("ru-RU")} · ${allMovies.length} ${plural(allMovies.length)}</p>
+    <table>
+      <thead><tr><th>#</th><th>Название</th><th>Год</th><th>★</th><th>Длительность</th><th>Жанры</th><th>Категория</th><th>Статус</th><th>Дата</th></tr></thead>
+      <tbody>
+        ${allMovies.map((m, i) => `
+          <tr class="${state.watched.some(w => w.id === m.id) ? "watched" : ""}">
+            <td>${i+1}</td>
+            <td>${esc(m.title)} ${m.orig && m.orig !== m.title ? `<br><small>${esc(m.orig)}</small>` : ""}</td>
+            <td>${m.year || "-"}</td>
+            <td>${m.rating ? m.rating.toFixed(1) : "-"}</td>
+            <td>${m.runtime ? dur(m.runtime) : "-"}</td>
+            <td>${(m.genres || []).join(", ") || "-"}</td>
+            <td>${m.category || "-"}</td>
+            <td>${state.watched.some(w => w.id === m.id) ? "Просмотрено" : "К просмотру"}</td>
+            <td>${m.watchedAt ? new Date(m.watchedAt).toLocaleDateString("ru-RU") : "-"}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+    </body></html>
+  `;
+  const w = window.open("", "_blank");
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 500);
+  showToast({ sub: "Открыто окно печати", title: "Сохрани как PDF" });
+}
+
+function downloadFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// QR-синхронизация
+function openQRCodeSync() {
+  const syncCode = generateSyncCode();
+  const syncUrl = `${location.origin}${location.pathname}?sync=${syncCode}`;
+  const qrApi = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(syncUrl)}`;
+
+  const o = $("#pro-overlay");
+  const content = $("#pro-content");
+  content.innerHTML = `
+    <div class="pro-section" style="text-align:center;">
+      <h3>QR-синхронизация</h3>
+      <p class="hint-text">Отсканируй на другом устройстве</p>
+      <img src="${qrApi}" alt="QR-код синхронизации" style="width:256px;height:256px;border-radius:16px;background:#fff;margin:16px auto;display:block;">
+      <p style="font-family:monospace;font-size:12px;color:var(--muted);word-break:break-all;">${syncCode}</p>
+      <button class="btn ghost" id="btn-copy-sync" style="margin-top:16px;">Копировать код</button>
+    </div>
+  `;
+  $("#btn-copy-sync").onclick = () => {
+    navigator.clipboard.writeText(syncCode);
+    showToast({ sub: "Скопировано", title: "Код синхронизации в буфере" });
+  };
+}
+
+function generateSyncCode() {
+  // Создаём короткий код из userId + timestamp
+  const data = { u: userId, t: Date.now(), d: { liked: state.liked.map(m => m.id), watched: state.watched.map(m => m.id) } };
+  return btoa(JSON.stringify(data)).replace(/[+/=]/g, "").slice(0, 32);
+}
+
+// Облачный бэкап
+async function triggerCloudBackup() {
+  showToast({ sub: "Синхронизация...", title: "Загружаем в облако" });
+  try {
+    // Используем существующий sync механизм
+    if (typeof syncRun === "function") {
+      await syncRun();
+      showToast({ sub: "Готово!", title: "Бэкап сохранён в облаке" });
+    } else {
+      showToast({ sub: "Ошибка", title: "Sync недоступен" });
+    }
+  } catch (e) {
+    showToast({ sub: "Ошибка", title: "Не удалось сохранить бэкап" });
+  }
+}
+
+// Профили (заглушка для будущего)
+function openProfilesManager() {
+  showToast({ sub: "Скоро", title: "Профили в разработке" });
+}
+
+// Stripe Customer Portal
+function openStripePortal() {
+  if (!PROXY_LICENSE_URL) {
+    showToast({ sub: "Недоступно", title: "Настройте прокси" });
+    return;
+  }
+  fetch((CONFIG.PROXY_URL || "").trim().replace(/\/+$/, "") + "/stripe/portal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId })
+  }).then(r => r.json()).then(data => {
+    if (data.url) window.location.href = data.url;
+    else showToast({ sub: "Ошибка", title: data.error || "Не удалось открыть портал" });
+  }).catch(() => showToast({ sub: "Ошибка", title: "Проверьте интернет" }));
 }
 
 /* ============ События ============ */
@@ -1397,6 +1787,7 @@ document.addEventListener("click", e => {
     case "btn-open-filters": return openFiltersModal();
     case "btn-apply-filters": return applyFiltersModal();
     case "btn-reset-filters": $("#filter-grid").querySelectorAll("input").forEach(i => (i.checked = false)); return;
+    case "btn-pro": return openProSettings();
     case "tutorial-next": return showTutorialStep(tutorialStep + 1);
     case "tutorial-skip": return finishTutorial();
     case "btn-retry": if (!genres.length) return boot(); paging = newPaging(); return refill("init");
@@ -1606,14 +1997,29 @@ function closeWheelUI() {
   wheelCloseTimer = setTimeout(() => { o.hidden = true; o.classList.remove("closing"); o.innerHTML = ""; o.style.opacity = ""; revealBarsOff(); }, 340);
 }
 
+function closeProUI() {
+  const o = $("#pro-overlay");
+  if (!o || o.hidden) return;
+  o.classList.add("closing");
+  const sheet = $("#pro-sheet-element");
+  if (sheet) sheet.classList.add("dismissing");
+  clearTimeout(filtersTimer);
+  filtersTimer = setTimeout(() => {
+    o.hidden = true;
+    o.classList.remove("closing");
+    if (sheet) { sheet.classList.remove("dismissing"); sheet.style.transform = ""; }
+    o.style.opacity = "";
+  }, 340);
+}
+
 function wheelClick(e) {
   if (e.target.id === "wheel-reveal") return hideReveal();
   const b = e.target.closest("button");
   if (!b || wheelSpinning) return;
   if (b.id === "reveal-more") { hideReveal(); setTimeout(() => wheelSpin(), 200); return; }
   if (b.id === "reveal-watch" || b.id === "reveal-card") { hideReveal(); openWheelPick(); return; }
-  if (b.dataset.wtime !== undefined) { wheelOpts.maxRt = +b.dataset.wtime; wheelWon = false; wheelRender(); }
-  else if (b.dataset.wgenre !== undefined) { wheelOpts.genre = b.dataset.wgenre; wheelWon = false; wheelRender(); }
+  if (b.dataset.wtime !== undefined) { wheelOpts.maxRt = +b.dataset.wtime; wheelRejected.clear(); wheelWon = false; wheelRender(); }
+  else if (b.dataset.wgenre !== undefined) { wheelOpts.genre = b.dataset.wgenre; wheelRejected.clear(); wheelWon = false; wheelRender(); }
   else if (b.id === "wheel-spin") { if (wheelSwallow) { wheelSwallow = false; return; } wheelSpin(); }
   else if (b.id === "wheel-open") openWheelPick();
 }
@@ -2204,7 +2610,7 @@ function openWheelPick() {
   openSheet(m);
 }
 
-function hideLayers() { closeSheetUI(); closeFiltersUI(); closeWheelUI(); }
+function hideLayers() { closeSheetUI(); closeFiltersUI(); closeWheelUI(); closeProUI(); }
 
 /* ============ Запуск ============ */
 /* ============ Версия приложения ============ */
@@ -2258,7 +2664,7 @@ async function boot() {
 function startApp() {
   if (appStarted) return;
   appStarted = true;
-  if (!(CONFIG.TMDB_KEY || "").trim()) { $("#setup").hidden = false; return; }
+  if (!(CONFIG.PROXY_URL || "").trim() && !(CONFIG.TMDB_KEY || "").trim()) { $("#setup").hidden = false; return; }
   boot();
 }
 

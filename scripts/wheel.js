@@ -139,8 +139,8 @@ function wheelClick(e) {
   if (!b || wheelSpinning) return;
   if (b.id === "reveal-more") { hideReveal(); setTimeout(() => wheelSpin(), 200); return; }
   if (b.id === "reveal-watch" || b.id === "reveal-card") { hideReveal(); openWheelPick(); return; }
-  if (b.dataset.wtime !== undefined) { wheelOpts.maxRt = +b.dataset.wtime; wheelWon = false; wheelRender(); }
-  else if (b.dataset.wgenre !== undefined) { wheelOpts.genre = b.dataset.wgenre; wheelWon = false; wheelRender(); }
+  if (b.dataset.wtime !== undefined) { wheelOpts.maxRt = +b.dataset.wtime; wheelRejected.clear(); wheelWon = false; wheelRender(); haptic(6); }
+  else if (b.dataset.wgenre !== undefined) { wheelOpts.genre = b.dataset.wgenre; wheelRejected.clear(); wheelWon = false; wheelRender(); haptic(6); }
   else if (b.id === "wheel-spin") { if (wheelSwallow) { wheelSwallow = false; return; } wheelSpin(); }
   else if (b.id === "wheel-open") openWheelPick();
 }
@@ -367,15 +367,18 @@ function bindWheelStage() {
     const card = e.target.closest(".cc");
     d = { x: e.clientX, sx: e.clientX, sy: e.clientY, moved: false, v: 0, t: performance.now(), idx: card ? +card.dataset.i : -1 };
     try { st.setPointerCapture(e.pointerId); } catch (err) {}
+    // Тактильный отклик при начале перетаскивания
+    st.style.transition = "none";
   });
   st.addEventListener("pointermove", e => {
     if (!d) return;
     if (!d.moved) {
-      if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 8 || wheelSegs.length < 2) return;
+      if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6 || wheelSegs.length < 2) return; // чувствительнее
       d.moved = true; d.x = e.clientX; d.t = performance.now();
       wheelDragging = true;
       if (wheelWon) { wheelWon = false; wheelWinIdx = -1; hideReveal(); clearTimeout(wheelOpenTimer); wheelUpdateUi(); }
       st.classList.add("dragging");
+      haptic(6); // лёгкий тактильный отклик при старте свайпа
       return;
     }
     const dx = e.clientX - d.x;
@@ -383,7 +386,9 @@ function bindWheelStage() {
     const dp = -dx / wheelPitch;
     const now = performance.now(), dt = Math.max(now - d.t, 1);
     d.t = now;
-    d.v = 0.7 * d.v + 0.3 * (dp / dt * 1000);   // скорость, карточек в секунду
+    // Улучшенная оценка скорости: экспоненциальное сглаживание с адаптивным весом
+    const alpha = dt < 16 ? 0.25 : 0.15; // быстрее реагируем на быстрые движения
+    d.v = (1 - alpha) * d.v + alpha * (dp / dt * 1000);
     wheelPos += dp;
     wheelApply(true);
   });
@@ -398,9 +403,19 @@ function bindWheelStage() {
       else wheelGlideTo(s.idx);
       return;
     }
-    const v = performance.now() - s.t > 90 ? 0 : s.v;
-    if (Math.abs(v) > 2.4) wheelSpin({ dir: Math.sign(v), power: Math.min(1, (Math.abs(v) - 2.4) / 9) });
-    else wheelGlideTo(Math.round(wheelPos));
+    // Используем скорость в момент отпускания, если палец не задерживался
+    const elapsed = performance.now() - s.t;
+    const v = elapsed > 100 ? 0 : s.v; // если палец задержался >100мс — считаем, что это не бросок
+    const absV = Math.abs(v);
+    // Более плавный порог: чем быстрее бросок, тем меньше порог
+    const threshold = absV > 5 ? 1.5 : 2.2;
+    if (absV > threshold) {
+      const power = Math.min(1, (absV - threshold) / 8); // более плавная шкала силы
+      wheelSpin({ dir: Math.sign(v), power });
+      haptic([8, 20, 8]); // тактильный отклик на спине
+    } else {
+      wheelGlideTo(Math.round(wheelPos));
+    }
   };
   st.addEventListener("pointerup", end);
   st.addEventListener("pointercancel", end);
@@ -412,35 +427,73 @@ function bindWheelCharge() {
   if (!btn) return;
   let t0 = 0, raf = 0, power = 0, active = false;
   const tri = ms => { const p = (ms % 1500) / 1500; return p < 0.5 ? p * 2 : 2 - p * 2; };
+
+  // Create power indicator element
+  let powerIndicator = btn.querySelector(".power-indicator");
+  if (!powerIndicator) {
+    powerIndicator = document.createElement("span");
+    powerIndicator.className = "power-indicator";
+    powerIndicator.style.cssText = `
+      position: absolute; inset: 0; border-radius: inherit;
+      background: linear-gradient(90deg, var(--user-accent), var(--like));
+      opacity: 0; transform: scaleX(0); transform-origin: left center;
+      transition: transform 0.1s ease-out, opacity 0.1s ease-out;
+      pointer-events: none; z-index: 0;
+    `;
+    btn.prepend(powerIndicator);
+  }
+
   const tick = () => {
     power = tri(performance.now() - t0 - 220);
     btn.style.setProperty("--p", power.toFixed(3));
+    powerIndicator.style.transform = `scaleX(${power})`;
+    powerIndicator.style.opacity = power.toString();
     raf = requestAnimationFrame(tick);
   };
+
   const start = () => {
     if (btn.disabled || wheelSpinning) return;
     active = true; t0 = performance.now();
+    btn.style.transition = "transform 0.1s ease-out";
+    btn.style.transform = "scale(0.98)";
     setTimeout(() => {
       if (!active) return;
       btn.classList.add("charging");
       btn.innerHTML = `<span class="lbl">Отпусти в нужный момент</span>`;
+      powerIndicator.style.opacity = "0";
+      powerIndicator.style.transform = "scaleX(0)";
       raf = requestAnimationFrame(tick);
-    }, 220);
+      haptic(8);
+    }, 180);
   };
+
   const stop = fire => {
     if (!active) return;
     active = false;
     cancelAnimationFrame(raf);
     const charged = btn.classList.contains("charging");
+    btn.style.transition = "transform 0.15s cubic-bezier(.34,1.56,.64,1)";
+    btn.style.transform = "";
+    powerIndicator.style.transition = "transform 0.3s cubic-bezier(.34,1.56,.64,1), opacity 0.2s ease-out";
+    powerIndicator.style.transform = "scaleX(0)";
+    powerIndicator.style.opacity = "0";
     btn.classList.remove("charging");
     btn.style.removeProperty("--p");
     if (charged) {
       wheelSwallow = true;
-      setTimeout(() => { wheelSwallow = false; }, 400);
+      setTimeout(() => { wheelSwallow = false; }, 300);
       wheelUpdateUi();
-      if (fire) { haptic(12); wheelSpin({ power }); }
+      if (fire) {
+        haptic([10, 30, 10]);
+        wheelSpin({ power });
+      }
     }
+    setTimeout(() => {
+      btn.style.transition = "";
+      powerIndicator.style.transition = "";
+    }, 300);
   };
+
   btn.addEventListener("pointerdown", start);
   btn.addEventListener("pointerup", () => stop(true));
   btn.addEventListener("pointerleave", () => stop(false));
@@ -473,6 +526,9 @@ function wheelSpin(opts) {
   wheelSpinning = true;
   wheelUpdateUi();
 
+  // Инвалидируем старую сессию — любой новый spin отменяет ожидающий reveal
+  ++wheelSpinToken;
+
   if (n < 2 || RM()) {
     wheelPos = k;
     wheelApply(false);
@@ -483,6 +539,9 @@ function wheelSpin(opts) {
   while (delta < T) delta += n;
   wheelTween(wheelPos + dir * delta, 2400 + T * 45, t => easeOut(t, 3.4), () => wheelFinish(k));
 }
+
+// Уникальный токен сессии вращения, чтобы избежать гонок при быстрых перекрутках
+let wheelSpinToken = 0;
 
 // Большой постер победного экрана грузим и декодируем заранее, пока карусель крутится,
 // иначе при подмене карточки на копию в «Сегодня смотрим» постер на пару кадров мигает пустым
@@ -507,7 +566,18 @@ function wheelFinish(k) {
   const st = $("#wheel-stage");
   if (st) burst(st, "var(--user-accent)", 18);
   haptic([20, 40, 30]);
-  wheelOpenTimer = setTimeout(() => wheelWinnerReady(m).then(() => { if (wheelWon && wheelCurrent === m) wheelReveal(); }), 900);
+
+  // Увеличиваем токен сессии — любой новый spin/invalidate отменит этот reveal
+  const token = ++wheelSpinToken;
+
+  // Короткая задержка для «драматического» эффекта, затем ждём готовность постера
+  wheelOpenTimer = setTimeout(() => {
+    if (token !== wheelSpinToken) return; // устарела сессия
+    wheelWinnerReady(m).then(() => {
+      if (token !== wheelSpinToken) return; // устарела сессия
+      if (wheelWon && wheelCurrent === m) wheelReveal();
+    });
+  }, 700); // уменьшили с 900 до 700 для более отзывчивого UX
 }
 
 /* ---------- Выход победителя ---------- */
@@ -647,22 +717,54 @@ function hideReveal() {
 
 function wheelConfetti(host, cx, cy) {
   if (RM()) return;
-  const colors = ["#3CBBB1", "#46e0a0", "#ffd166", "#ff7a5c", "#ff6b81", "#ffffff"];
-  for (let i = 0; i < 46; i++) {
+  // Более яркая и разнообразная палитра
+  const colors = [
+    "#3CBBB1", "#46e0a0", "#ffd166", "#ff7a5c", "#ff6b81", "#ffffff",
+    "#ff4d8d", "#38bdf8", "#a5b4fc", "#fde68a", "#f472b6", "#60a5fa"
+  ];
+  const shapes = ["rect", "circle", "triangle"]; // разные формы конфетти
+
+  for (let i = 0; i < 55; i++) { // больше частиц
     const p = document.createElement("i");
-    const w = 5 + Math.random() * 5, h = 8 + Math.random() * 8;
-    p.className = "confetti";
-    p.style.cssText = `left:${cx}px;top:${cy}px;width:${w}px;height:${h}px;background:${colors[i % colors.length]};`;
+    const shape = shapes[Math.floor(Math.random() * shapes.length)];
+    const size = 4 + Math.random() * 6;
+    p.className = "confetti confetti-" + shape;
+    p.style.cssText = `
+      left:${cx}px;top:${cy}px;
+      width:${size}px;height:${size}px;
+      background:${colors[Math.floor(Math.random() * colors.length)]};
+      opacity: 1;
+      will-change: transform, opacity;
+    `;
+    // Разные формы через clip-path
+    if (shape === "circle") p.style.borderRadius = "50%";
+    else if (shape === "triangle") p.style.clipPath = "polygon(50% 0%, 0% 100%, 100% 100%)";
+
     host.appendChild(p);
-    const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.15;
-    const d = 140 + Math.random() * 230;
-    const x = Math.cos(a) * d, y = Math.sin(a) * d;
-    const rot = (Math.random() - 0.5) * 900;
+
+    // Физика полета: более реалистичная траектория
+    const angle = -Math.PI / 2 + (Math.random() - 0.35) * Math.PI * 1.3; // чуть шире разброс
+    const distance = 120 + Math.random() * 280;
+    const x = Math.cos(angle) * distance;
+    const y = Math.sin(angle) * distance;
+    const rotation = (Math.random() - 0.5) * 1080;
+    const gravity = 300 + Math.random() * 200;
+
+    const duration = 1400 + Math.random() * 1000;
+    const delay = Math.random() * 80;
+
     p.animate([
-      { transform: "translate(0,0) rotate(0deg) scale(.4)", opacity: 1 },
-      { transform: `translate(${x}px,${y}px) rotate(${rot * 0.6}deg) scale(1)`, opacity: 1, offset: 0.45 },
-      { transform: `translate(${x * 1.15}px,${y + 260 + Math.random() * 160}px) rotate(${rot}deg) scale(.9)`, opacity: 0 },
-    ], { duration: 1500 + Math.random() * 900, easing: "cubic-bezier(.2,.7,.4,1)", delay: Math.random() * 120 }).onfinish = () => p.remove();
+      { transform: `translate(0,0) rotate(0deg) scale(.3)`, opacity: 1, offset: 0 },
+      { transform: `translate(${x * 0.4}px,${y * 0.3}px) rotate(${rotation * 0.3}deg) scale(1)`, opacity: 1, offset: 0.25 },
+      { transform: `translate(${x * 0.8}px,${y * 0.7}px) rotate(${rotation * 0.7}deg) scale(1.1)`, opacity: 1, offset: 0.5 },
+      { transform: `translate(${x}px,${y + gravity}px) rotate(${rotation}deg) scale(.8)`, opacity: 0.8, offset: 0.8 },
+      { transform: `translate(${x * 1.1}px,${y + gravity * 1.8}px) rotate(${rotation * 1.2}deg) scale(.4)`, opacity: 0, offset: 1 },
+    ], {
+      duration,
+      easing: "cubic-bezier(.15,.7,.35,1)",
+      delay,
+      fill: "forwards"
+    }).onfinish = () => p.remove();
   }
 }
 
@@ -706,32 +808,71 @@ function wheelReveal() {
   const card = r.querySelector("#reveal-card");
   const rect = card.getBoundingClientRect();
   const host = r.getBoundingClientRect();
+
+  // Подготавливаем shine-эффект
+  const shine = r.querySelector(".reveal-shine");
+  if (shine) {
+    shine.style.cssText = `
+      position: absolute; inset: 0; border-radius: 16px;
+      background: linear-gradient(110deg, transparent 40%, rgba(255,255,255,.15) 50%, transparent 60%);
+      transform: translateX(-100%); pointer-events: none;
+      animation: shine-sweep 1.2s ease-out forwards;
+    `;
+    if (!document.getElementById("reveal-shine-style")) {
+      const style = document.createElement("style");
+      style.id = "reveal-shine-style";
+      style.textContent = `
+        @keyframes shine-sweep {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(200%); }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  }
+
   if (!RM() && card.animate) {
     if (from && from.width) {
       const dx = from.left + from.width / 2 - (rect.left + rect.width / 2);
       const dy = from.top + from.height / 2 - (rect.top + rect.height / 2);
       const s = from.width / rect.width;
       card.animate([
-        { transform: `translate(${dx}px,${dy}px) scale(${s})` },
-        { transform: "translate(0,0) scale(1)" },
-      ], { duration: 900, easing: "cubic-bezier(.25,.85,.3,1)", fill: "backwards" });
-    } else anim(card, FX_IN, { duration: 700 });
+        { transform: `translate(${dx}px,${dy}px) scale(${s})`, opacity: 0 },
+        { transform: `translate(${dx * 0.3}px,${dy * 0.3}px) scale(${s * 1.05})`, opacity: 1, offset: 0.3 },
+        { transform: `translate(${dx * 0.1}px,${dy * 0.1}px) scale(${s * 1.01})`, opacity: 1, offset: 0.6 },
+        { transform: "translate(0,0) scale(1)", opacity: 1 },
+      ], { duration: 800, easing: "cubic-bezier(.22,.8,.32,1)", fill: "backwards" });
+    } else {
+      anim(card, FX_IN, { duration: 600 });
+    }
+
+    // Confetti чуть раньше, синхронно с выходом карточки
     setTimeout(() => {
       if (wheelRevealEl() !== r) return;
       wheelConfetti(r, rect.left + rect.width / 2 - host.left, rect.top + rect.height / 2 - host.top);
       haptic(15);
-    }, 700);
+    }, 500);
   }
 
-  // Лёгкий 3D-наклон постера за пальцем / курсором
+  // Лёгкий 3D-наклон постера за пальцем / курсором (сглаженный)
   const tilt = card.querySelector(".reveal-tilt");
+  let tiltRAF = 0;
   const setTilt = e => {
     const b = card.getBoundingClientRect();
     const nx = (e.clientX - b.left) / b.width - 0.5, ny = (e.clientY - b.top) / b.height - 0.5;
-    tilt.style.transform = `rotateY(${(nx * 22).toFixed(1)}deg) rotateX(${(-ny * 22).toFixed(1)}deg)`;
+    cancelAnimationFrame(tiltRAF);
+    tiltRAF = requestAnimationFrame(() => {
+      tilt.style.transform = `rotateY(${(nx * 18).toFixed(1)}deg) rotateX(${(-ny * 18).toFixed(1)}deg)`;
+    });
+  };
+  const clearTilt = () => {
+    cancelAnimationFrame(tiltRAF);
+    tilt.style.transition = "transform 0.4s cubic-bezier(.34,1.56,.64,1)";
+    tilt.style.transform = "";
+    setTimeout(() => { tilt.style.transition = ""; }, 400);
   };
   card.addEventListener("pointermove", setTilt);
-  ["pointerleave", "pointerup", "pointercancel"].forEach(ev => card.addEventListener(ev, () => { tilt.style.transform = ""; }));
+  ["pointerleave", "pointerup", "pointercancel"].forEach(ev => card.addEventListener(ev, clearTilt, { once: true }));
 }
 
 function openWheelPick() {
