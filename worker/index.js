@@ -7,9 +7,6 @@ const TMDB_OK = /^\/(genre\/movie\/list|discover\/movie|movie\/\d+)$/;
 const SYNC_ID = /^[a-f0-9]{32}$/;
 const MAX_BODY = 1_000_000;
 
-// Про лицензии: ключ в KV — "license:<userId>" = JSON { type: "pro"|"lifetime", expires?: number, stripeCustomerId?: string }
-// userId — хеш от fingerprint или email (если есть). Для анонимных — локальный ID в localStorage.
-
 export default {
   async fetch(req, env) {
     const origin = req.headers.get("Origin") || "";
@@ -21,7 +18,7 @@ export default {
       "Access-Control-Allow-Origin": allowed,
       "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
-      ...(any ? {} : { "Vary": "Origin" }),
+      "Vary": "Origin",
     };
     const reply = (body, status = 200, extra = {}) =>
       new Response(typeof body === "string" ? body : JSON.stringify(body), {
@@ -101,8 +98,7 @@ export default {
       if (req.method === "PUT") {
         const text = await req.text();
         if (text.length > MAX_BODY) return reply({ error: "too big" }, 413);
-        let b;
-        try { b = JSON.parse(text); } catch { return reply({ error: "json" }, 400); }
+        let b; try { b = JSON.parse(text); } catch { return reply({ error: "json" }, 400); }
         if (!b || typeof b.rev !== "number" || !b.data || !Array.isArray(b.data.liked) || !Array.isArray(b.data.watched))
           return reply({ error: "shape" }, 400);
         const curRaw = await env.SYNC.get(key);
@@ -112,161 +108,6 @@ export default {
         return reply({ ok: true });
       }
     }
-
-    // --- Лицензии (Pro) ---
-    if (url.pathname === "/license/verify" && req.method === "POST") {
-      const text = await req.text();
-      let b; try { b = JSON.parse(text); } catch { return reply({ error: "json" }, 400); }
-      const userId = b.userId;
-      if (!userId || typeof userId !== "string") return reply({ error: "userId required" }, 400);
-      const licenseKey = "license:" + userId;
-      const license = await env.SYNC.get(licenseKey);
-      if (!license) return reply({ pro: false });
-      try {
-        const lic = JSON.parse(license);
-        const now = Date.now();
-        const isValid = lic.type === "lifetime" || (lic.expires && lic.expires > now);
-        return reply({ pro: isValid, type: lic.type, expires: lic.expires || null });
-      } catch {
-        return reply({ pro: false });
-      }
-    }
-
-    // --- Stripe Checkout Session ---
-    if (url.pathname === "/stripe/checkout" && req.method === "POST") {
-      const secretKey = (env.STRIPE_SECRET_KEY || "").trim();
-      if (!secretKey) return reply({ error: "stripe not configured" }, 500);
-      const text = await req.text();
-      let b; try { b = JSON.parse(text); } catch { return reply({ error: "json" }, 400); }
-      const userId = b.userId;
-      const mode = b.mode || "payment"; // "payment" для lifetime, "subscription" для подписки
-      if (!userId || typeof userId !== "string") return reply({ error: "userId required" }, 400);
-
-      const priceId = mode === "subscription"
-        ? (env.STRIPE_PRICE_SUBSCRIPTION || "")
-        : (env.STRIPE_PRICE_LIFETIME || "");
-      if (!priceId) return reply({ error: "price not configured" }, 500);
-
-      const origin = req.headers.get("Origin") || "";
-      const successUrl = `${origin}/?pro=success&session_id={CHECKOUT_SESSION_ID}`;
-      const cancelUrl = `${origin}/?pro=cancel`;
-
-      const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${secretKey}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          "mode": mode,
-          "success_url": successUrl,
-          "cancel_url": cancelUrl,
-          "customer_email": b.email || undefined,
-          "metadata[userId]": userId,
-          "line_items[0][price]": priceId,
-          "line_items[0][quantity]": "1",
-        }).toString(),
-      });
-
-      const session = await stripeRes.json();
-      if (!stripeRes.ok) {
-        return reply({ error: session.error?.message || "stripe error" }, 400);
-      }
-      return reply({ url: session.url, sessionId: session.id });
-    }
-
-    // --- Stripe Customer Portal ---
-    if (url.pathname === "/stripe/portal" && req.method === "POST") {
-      const secretKey = (env.STRIPE_SECRET_KEY || "").trim();
-      if (!secretKey) return reply({ error: "stripe not configured" }, 500);
-      const text = await req.text();
-      let b; try { b = JSON.parse(text); } catch { return reply({ error: "json" }, 400); }
-      const userId = b.userId;
-      if (!userId || typeof userId !== "string") return reply({ error: "userId required" }, 400);
-
-      // Найти customerId по userId
-      const licenseKey = "license:" + userId;
-      const license = await env.SYNC.get(licenseKey);
-      let customerId = null;
-      if (license) {
-        try {
-          const lic = JSON.parse(license);
-          customerId = lic.stripeCustomerId;
-        } catch {}
-      }
-      if (!customerId) return reply({ error: "no customer" }, 404);
-
-      const origin = req.headers.get("Origin") || "";
-      const returnUrl = `${origin}/`;
-
-      const portalRes = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${secretKey}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          "customer": customerId,
-          "return_url": returnUrl,
-        }).toString(),
-      });
-
-      const session = await portalRes.json();
-      if (!portalRes.ok) {
-        return reply({ error: session.error?.message || "stripe error" }, 400);
-      }
-      return reply({ url: session.url });
-    }
-
-    // --- Stripe Webhook ---
-    if (url.pathname === "/stripe/webhook" && req.method === "POST") {
-      const sig = req.headers.get("stripe-signature");
-      const webhookSecret = (env.STRIPE_WEBHOOK_SECRET || "").trim();
-      if (!webhookSecret) return reply({ error: "webhook not configured" }, 500);
-      const body = await req.text();
-      let event;
-      try {
-        // Проверка подписи Stripe (упрощённо — в продакшене используйте stripe-node или аналоги)
-        // Тут просто парсим событие
-        event = JSON.parse(body);
-      } catch {
-        return reply({ error: "invalid payload" }, 400);
-      }
-      // Обработка событий
-      if (event.type === "checkout.session.completed") {
-        const session = event.data.object;
-        const userId = session.metadata?.userId;
-        const customerId = session.customer;
-        if (userId && customerId) {
-          const licenseKey = "license:" + userId;
-          // Lifetime purchase
-          if (session.mode === "payment") {
-            await env.SYNC.put(licenseKey, JSON.stringify({ type: "lifetime", stripeCustomerId: customerId, created: Date.now() }));
-          }
-          // Subscription
-          else if (session.mode === "subscription") {
-            const subscription = await fetch(`https://api.stripe.com/v1/subscriptions/${session.subscription}`, {
-              headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` }
-            }).then(r => r.json());
-            await env.SYNC.put(licenseKey, JSON.stringify({
-              type: "pro",
-              expires: (subscription.current_period_end || 0) * 1000,
-              stripeCustomerId: customerId,
-              stripeSubscriptionId: session.subscription
-            }));
-          }
-        }
-      }
-      else if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
-        const subscription = event.data.object;
-        const customerId = subscription.customer;
-        // Найти userId по customerId (можно хранить маппинг customerId -> userId)
-        // Для простоты: ищем в KV все лицензии и обновляем подходящую
-        // В продакшене лучше иметь отдельный индекс
-      }
-      return reply({ received: true });
-    }
-
     return reply({ error: "not found" }, 404);
   },
 };

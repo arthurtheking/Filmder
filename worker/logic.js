@@ -2,7 +2,7 @@
 export const LIMIT = 10;          // слотов у игрока в дуэли на двоих
 export const MAX_PLAYERS = 6;
 export const limitFor = n => (n <= 2 ? 10 : n <= 4 ? 6 : 5);   // чем больше игроков, тем меньше слотов — пул остаётся разумным
-// Игры, которые умеет показывать клиент (scripts/dg-*.js). «match» сюда не входит: клиент включает его сам, когда фильм выбрали несколько игроков.
+// Игры, которые умеет показывать клиент (scripts/dg-*.js). «match` сюда не входит: клиент включает его сам, когда фильм выбрали несколько игроков.
 export const GAMES = ["slots", "roulette", "fortune", "dice", "shells", "cardwar", "scratch", "plinko", "lotto", "claw", "darts", "striker", "ladder", "grid", "reel",
   "horses", "swim", "rockets", "snails", "balloons", "meteors", "sniper", "bubbles", "snap", "bowling", "bomb", "coin", "rps", "draw", "tug"];
 export const TARGETS = [0, 2, 3, 5];   // «первый до N побед»; 0 — без серии
@@ -21,7 +21,7 @@ export function cleanMovie(m) {
   return {
     id: m.id, title: str(m.title, 120), orig: str(m.orig, 120), year: str(m.year, 4),
     rating: Math.max(0, Math.min(10, +m.rating || 0)),
-    poster: /^\/[\w.@-]+\.(jpg|png|webp)$/.test(m.poster || "") ? m.poster : null,
+    poster: /^\/[\w.-]+\.(jpg|png|webp)$/.test(m.poster || "") ? m.poster : null,
     runtime: Math.max(0, Math.min(1000, +m.runtime || 0)),
     genres: Array.isArray(m.genres) ? m.genres.slice(0, 5).map(g => str(g, 30)) : [],
   };
